@@ -1,0 +1,188 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ──────────────────────────────────────────────
+// Enums
+// ──────────────────────────────────────────────
+
+enum ConversationStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ABANDONED
+}
+
+enum MessageRole {
+  CHILD
+  AVATAR
+  SYSTEM
+  PARENT_INTERVENTION
+}
+
+// ──────────────────────────────────────────────
+// Models
+// ──────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  firebaseUid  String?  @unique @map("firebase_uid")
+  email        String   @unique
+  passwordHash String?  @map("password_hash")
+  displayName  String   @map("display_name")
+  locale       String   @default("en")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  children Child[]
+
+  @@map("users")
+}
+
+model Child {
+  id               String   @id @default(uuid())
+  parentId         String   @map("parent_id")
+  name             String
+  age              Int
+  birthday         DateTime?
+  gender           String?
+  interests        String[]
+  developmentGoals String[] @map("development_goals")
+  locale           String   @default("en")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  parent          User                @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  avatar          Avatar?
+  conversations   Conversation[]
+  parentQuestions ParentQuestion[]
+
+  @@index([parentId])
+  @@map("children")
+}
+
+model Avatar {
+  id               String   @id @default(uuid())
+  childId          String   @unique @map("child_id")
+  name             String
+  skinTone         String   @map("skin_tone")
+  hairStyle        String   @map("hair_style")
+  hairColor        String   @map("hair_color")
+  eyeColor         String   @map("eye_color")
+  outfit           String
+  accessories      String[]
+  voiceId          String?  @map("voice_id")
+  personalityTraits String[] @map("personality_traits")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  child Child @relation(fields: [childId], references: [id], onDelete: Cascade)
+
+  @@map("avatars")
+}
+
+model MissionTemplate {
+  id               String   @id @default(uuid())
+  theme            String
+  titleEn          String   @map("title_en")
+  titleHe          String   @map("title_he")
+  descriptionEn    String   @map("description_en")
+  descriptionHe    String   @map("description_he")
+  narrativePrompt  String   @map("narrative_prompt") @db.Text
+  ageRangeMin      Int      @map("age_range_min")
+  ageRangeMax      Int      @map("age_range_max")
+  durationMinutes  Int      @default(5) @map("duration_minutes")
+  sceneryAssetKey  String?  @map("scenery_asset_key")
+  avatarCostumeKey String?  @map("avatar_costume_key")
+  isActive         Boolean  @default(true) @map("is_active")
+  sortOrder        Int      @default(0) @map("sort_order")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  conversations Conversation[]
+
+  @@map("mission_templates")
+}
+
+model Conversation {
+  id              String             @id @default(uuid())
+  childId         String             @map("child_id")
+  missionId       String?            @map("mission_id")
+  status          ConversationStatus @default(ACTIVE)
+  locale          String             @default("en")
+  startedAt       DateTime           @default(now()) @map("started_at")
+  endedAt         DateTime?          @map("ended_at")
+  durationSeconds Int?               @map("duration_seconds")
+  systemPrompt    String             @map("system_prompt") @db.Text
+  contextWindow   Json?              @map("context_window")
+
+  child   Child            @relation(fields: [childId], references: [id], onDelete: Cascade)
+  mission MissionTemplate? @relation(fields: [missionId], references: [id], onDelete: SetNull)
+
+  messages Message[]
+  summary  ConversationSummary?
+
+  @@index([childId])
+  @@index([missionId])
+  @@map("conversations")
+}
+
+model Message {
+  id                   String      @id @default(uuid())
+  conversationId       String      @map("conversation_id")
+  role                 MessageRole
+  textContent          String      @map("text_content") @db.Text
+  audioUrl             String?     @map("audio_url")
+  audioDuration        Float?      @map("audio_duration")
+  emotion              String?
+  isParentIntervention Boolean     @default(false) @map("is_parent_intervention")
+  timestamp            DateTime    @default(now())
+  metadata             Json?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("messages")
+}
+
+model ParentQuestion {
+  id          String   @id @default(uuid())
+  childId     String   @map("child_id")
+  questionText String  @map("question_text")
+  topic       String?
+  priority    Int      @default(0)
+  isActive    Boolean  @default(true) @map("is_active")
+  isRecurring Boolean  @default(false) @map("is_recurring")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  child Child @relation(fields: [childId], references: [id], onDelete: Cascade)
+
+  @@index([childId])
+  @@map("parent_questions")
+}
+
+model ConversationSummary {
+  id               String   @id @default(uuid())
+  conversationId   String   @unique @map("conversation_id")
+  briefSummary     String   @map("brief_summary") @db.Text
+  detailedSummary  String   @map("detailed_summary") @db.Text
+  moodAssessment   String?  @map("mood_assessment")
+  keyTopics        String[] @map("key_topics")
+  emotionalFlags   Json?    @map("emotional_flags")
+  questionAnswers  Json?    @map("question_answers")
+  engagementLevel  String?  @map("engagement_level")
+  talkativenessScore Float? @map("talkativeness_score")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("conversation_summaries")
+}

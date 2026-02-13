@@ -1,0 +1,91 @@
+/* General */
+"app.name" = "אווטר";
+"common.cancel" = "ביטול";
+"common.save" = "שמירה";
+"common.done" = "סיום";
+"common.delete" = "מחיקה";
+"common.loading" = "טוען...";
+"common.error" = "שגיאה";
+"common.retry" = "נסה שוב";
+
+/* Auth */
+"auth.login" = "התחברות";
+"auth.register" = "יצירת חשבון";
+"auth.email" = "אימייל";
+"auth.password" = "סיסמה";
+"auth.confirmPassword" = "אימות סיסמה";
+"auth.displayName" = "השם שלך";
+"auth.logout" = "התנתקות";
+"auth.noAccount" = "אין לך חשבון? **הירשם**";
+"auth.hasAccount" = "כבר יש לך חשבון? **התחבר**";
+"auth.subtitle" = "החבר הכי טוב של הילד שלך";
+
+/* Child Home */
+"child.home.greeting" = "!היי! אני %@";
+"child.home.ready" = "מוכנים להרפתקה?";
+"child.home.createAvatar" = "!צרו את האווטר שלכם";
+"child.home.letsGo" = "!יאללה";
+"child.home.chooseMission" = "בחרו משימה";
+
+/* Avatar Creation */
+"avatar.create.title" = "יצירת אווטר";
+"avatar.create.name" = "שם האווטר";
+"avatar.create.namePlaceholder" = "!תנו שם לחבר שלכם";
+"avatar.create.skinTone" = "גוון עור";
+"avatar.create.hairStyle" = "תסרוקת";
+"avatar.create.hairColor" = "צבע שיער";
+"avatar.create.eyeColor" = "צבע עיניים";
+"avatar.create.button" = "!צרו את האווטר שלי";
+
+/* Conversation */
+"conversation.starting" = "...מתכוננים";
+"conversation.intro" = "...מתחילים";
+"conversation.active" = "הרפתקה";
+"conversation.wrapUp" = "מסיימים";
+"conversation.complete.title" = "!המשימה הושלמה";
+"conversation.complete.subtitle" = "!כל הכבוד";
+"conversation.parentWatching" = "ההורה צופה";
+
+/* Parent Dashboard */
+"parent.dashboard.title" = "לוח בקרה";
+"parent.dashboard.welcome" = "שלום, %@";
+"parent.dashboard.addChild" = "הוסיפו פרופיל ילד";
+"parent.dashboard.addChildDesc" = "הגדירו את פרופיל הילד שלכם כדי להתחיל עם חבר האווטר שלהם";
+"parent.dashboard.recentConversations" = "שיחות אחרונות";
+"parent.dashboard.questions" = "שאלות";
+"parent.dashboard.history" = "היסטוריה";
+"parent.dashboard.insights" = "תובנות";
+
+/* Questions */
+"questions.title" = "שאלות עבור %@";
+"questions.active" = "שאלות פעילות";
+"questions.footer" = "שאלות אלו ישולבו באופן טבעי בשיחה הבאה של הילד שלכם עם האווטר.";
+"questions.add" = "הוספת שאלה";
+"questions.placeholder" = "מה תרצו לשאול?";
+"questions.topic" = "(נושא (אופציונלי";
+"questions.priority" = "עדיפות: %d";
+"questions.recurring" = "חוזר";
+
+/* Live Monitor */
+"monitor.title" = "צפייה חיה";
+"monitor.live" = "שידור חי";
+"monitor.intervention" = "...שלחו הנחיה לאווטר";
+
+/* Settings */
+"settings.title" = "הגדרות";
+"settings.account" = "חשבון";
+"settings.language" = "שפה";
+"settings.appLanguage" = "שפת האפליקציה";
+
+/* Child Profile Setup */
+"profile.title" = "הוספת ילד";
+"profile.name" = "שם הילד";
+"profile.age" = "גיל: %d";
+"profile.gender" = "מגדר";
+"profile.interests" = "תחומי עניין";
+"profile.goals" = "יעדי התפתחות";
+"profile.goalsDesc" = "על מה תרצו לעבוד?";
+"profile.language" = "שפה ראשית";
+
+/* Mission */
+"mission.duration" = "דק׳ %d";

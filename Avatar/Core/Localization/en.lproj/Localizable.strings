@@ -1,0 +1,91 @@
+/* General */
+"app.name" = "Avatar";
+"common.cancel" = "Cancel";
+"common.save" = "Save";
+"common.done" = "Done";
+"common.delete" = "Delete";
+"common.loading" = "Loading...";
+"common.error" = "Error";
+"common.retry" = "Retry";
+
+/* Auth */
+"auth.login" = "Log In";
+"auth.register" = "Create Account";
+"auth.email" = "Email";
+"auth.password" = "Password";
+"auth.confirmPassword" = "Confirm Password";
+"auth.displayName" = "Your Name";
+"auth.logout" = "Log Out";
+"auth.noAccount" = "Don't have an account? **Sign Up**";
+"auth.hasAccount" = "Already have an account? **Log In**";
+"auth.subtitle" = "Your child's AI best friend";
+
+/* Child Home */
+"child.home.greeting" = "Hi there! I'm %@!";
+"child.home.ready" = "Ready for an adventure?";
+"child.home.createAvatar" = "Create Your Avatar!";
+"child.home.letsGo" = "Let's Go!";
+"child.home.chooseMission" = "Choose Your Mission";
+
+/* Avatar Creation */
+"avatar.create.title" = "Create Avatar";
+"avatar.create.name" = "Avatar Name";
+"avatar.create.namePlaceholder" = "Name your friend!";
+"avatar.create.skinTone" = "Skin Tone";
+"avatar.create.hairStyle" = "Hair Style";
+"avatar.create.hairColor" = "Hair Color";
+"avatar.create.eyeColor" = "Eye Color";
+"avatar.create.button" = "Create My Avatar!";
+
+/* Conversation */
+"conversation.starting" = "Getting ready...";
+"conversation.intro" = "Starting...";
+"conversation.active" = "Adventure";
+"conversation.wrapUp" = "Wrapping up";
+"conversation.complete.title" = "Mission Complete!";
+"conversation.complete.subtitle" = "Great job today!";
+"conversation.parentWatching" = "Parent is watching";
+
+/* Parent Dashboard */
+"parent.dashboard.title" = "Dashboard";
+"parent.dashboard.welcome" = "Welcome, %@";
+"parent.dashboard.addChild" = "Add your child's profile";
+"parent.dashboard.addChildDesc" = "Set up your child's profile to get started with their AI avatar friend";
+"parent.dashboard.recentConversations" = "Recent Conversations";
+"parent.dashboard.questions" = "Questions";
+"parent.dashboard.history" = "History";
+"parent.dashboard.insights" = "Insights";
+
+/* Questions */
+"questions.title" = "Questions for %@";
+"questions.active" = "Active Questions";
+"questions.footer" = "These questions will be naturally woven into your child's next conversation with their avatar.";
+"questions.add" = "Add Question";
+"questions.placeholder" = "What would you like to ask?";
+"questions.topic" = "Topic (optional)";
+"questions.priority" = "Priority: %d";
+"questions.recurring" = "Recurring";
+
+/* Live Monitor */
+"monitor.title" = "Live Monitor";
+"monitor.live" = "LIVE";
+"monitor.intervention" = "Send guidance to avatar...";
+
+/* Settings */
+"settings.title" = "Settings";
+"settings.account" = "Account";
+"settings.language" = "Language";
+"settings.appLanguage" = "App Language";
+
+/* Child Profile Setup */
+"profile.title" = "Add Child";
+"profile.name" = "Child's Name";
+"profile.age" = "Age: %d";
+"profile.gender" = "Gender";
+"profile.interests" = "Interests";
+"profile.goals" = "Development Goals";
+"profile.goalsDesc" = "What would you like to work on?";
+"profile.language" = "Primary Language";
+
+/* Mission */
+"mission.duration" = "%d min";

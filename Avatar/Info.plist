@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Avatar needs access to your microphone so your child can talk to their avatar friend.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Avatar uses speech recognition to understand what your child says.</string>
+	<key>OPENAI_API_KEY</key>
+	<string>YOUR_OPENAI_API_KEY_HERE</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.690206338530-j2fk9c3aha00i5dgaonk7ddgbrevefgt</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

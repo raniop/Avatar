@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>690206338530-j2fk9c3aha00i5dgaonk7ddgbrevefgt.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.690206338530-j2fk9c3aha00i5dgaonk7ddgbrevefgt</string>
+	<key>API_KEY</key>
+	<string>AIzaSyAwZuaJSdB43q8nCJuKs3RbtZzbPlJlfUA</string>
+	<key>GCM_SENDER_ID</key>
+	<string>690206338530</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.rani.Avatar</string>
+	<key>PROJECT_ID</key>
+	<string>avatar-dc52f</string>
+	<key>STORAGE_BUCKET</key>
+	<string>avatar-dc52f.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:690206338530:ios:563c9452bc66397122ddbb</string>
+</dict>
+</plist>
