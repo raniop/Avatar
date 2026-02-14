@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import prisma from '../../config/prisma';
 import { ConversationEngine } from '../../services/conversation-engine/ConversationEngine';
 import { SummaryEngine } from '../../services/summary-engine/SummaryEngine';
@@ -115,6 +116,22 @@ export async function conversationRoutes(fastify: FastifyInstance) {
         systemPrompt,
       });
 
+      // Generate TTS audio for the opening message so kids can hear it
+      let openingAudioUrl: string | null = null;
+      let openingAudioDuration: number | null = null;
+      try {
+        const ttsResult = await voicePipeline.generateAvatarAudio(
+          openingMessage.text,
+          child.avatar?.voiceId || undefined,
+          child.age,
+        );
+        openingAudioUrl = ttsResult.audioUrl;
+        openingAudioDuration = ttsResult.audioDuration;
+      } catch (ttsError) {
+        console.error('Failed to generate opening message TTS:', ttsError);
+        // Continue without audio -- text will still appear
+      }
+
       // Save the opening message
       const avatarMessage = await prisma.message.create({
         data: {
@@ -122,6 +139,8 @@ export async function conversationRoutes(fastify: FastifyInstance) {
           role: 'AVATAR',
           textContent: openingMessage.text,
           emotion: openingMessage.emotion,
+          audioUrl: openingAudioUrl,
+          audioDuration: openingAudioDuration,
         },
       });
 
@@ -139,6 +158,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
           role: avatarMessage.role,
           textContent: avatarMessage.textContent,
           emotion: avatarMessage.emotion,
+          audioUrl: avatarMessage.audioUrl,
           timestamp: avatarMessage.timestamp,
         },
       });
@@ -230,7 +250,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
           textContent: avatarResponse.text,
           emotion: avatarResponse.emotion,
           metadata: avatarResponse.metadata
-            ? (avatarResponse.metadata as Record<string, unknown>)
+            ? (avatarResponse.metadata as Prisma.InputJsonValue)
             : undefined,
         },
       });
