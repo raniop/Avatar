@@ -1,8 +1,9 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
 import { Server } from 'socket.io';
-import { createServer } from 'http';
+import path from 'path';
 import { getEnv } from './config/environment';
 import { prisma } from './config/prisma';
 import { authPlugin } from './plugins/auth';
@@ -43,6 +44,13 @@ async function buildApp() {
 
   await fastify.register(authPlugin);
 
+  // ── Static files (audio uploads) ───────────────
+  await fastify.register(fastifyStatic, {
+    root: path.resolve(env.UPLOAD_DIR || './uploads'),
+    prefix: '/uploads/',
+    decorateReply: false,
+  });
+
   // ── Health check ─────────────────────────────────
   fastify.get('/health', async () => {
     return { status: 'ok', timestamp: new Date().toISOString() };
@@ -57,7 +65,7 @@ async function buildApp() {
   await fastify.register(questionRoutes, { prefix: '/api/questions' });
 
   // ── Global error handler ─────────────────────────
-  fastify.setErrorHandler((error, _request, reply) => {
+  fastify.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
     fastify.log.error(error);
 
     const statusCode = error.statusCode ?? 500;
@@ -80,15 +88,19 @@ async function start() {
   const env = getEnv();
   const fastify = await buildApp();
 
-  // ── Socket.io setup ──────────────────────────────
-  const httpServer = createServer(fastify.server);
+  // Ensure Fastify is ready (creates the underlying http.Server)
+  await fastify.ready();
 
-  const io = new Server(httpServer, {
+  // ── Socket.io setup ──────────────────────────────
+  // Attach Socket.IO directly to Fastify's internal HTTP server
+  const io = new Server(fastify.server, {
     cors: {
-      origin: env.CORS_ORIGIN,
+      origin: '*',  // Allow all origins for mobile app connections
       credentials: true,
     },
     path: '/ws',
+    transports: ['websocket', 'polling'],
+    maxHttpBufferSize: 5 * 1024 * 1024, // 5 MB — voice messages can be large
   });
 
   const sessionManager = new SessionManager();
@@ -123,6 +135,7 @@ async function start() {
   try {
     await fastify.listen({ port: env.PORT, host: env.HOST });
     fastify.log.info(`Server listening on http://${env.HOST}:${env.PORT}`);
+    fastify.log.info(`Socket.IO listening on path /ws`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

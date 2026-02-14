@@ -1,4 +1,5 @@
 import { Server, Socket } from 'socket.io';
+import { Prisma } from '@prisma/client';
 import { SessionManager, ConversationSession } from '../SessionManager';
 import { VoicePipeline } from '../../services/voice-pipeline/VoicePipeline';
 import { ConversationEngine } from '../../services/conversation-engine/ConversationEngine';
@@ -87,7 +88,7 @@ export function registerConversationHandler(
   // ── Voice Message ────────────────────────────────
   socket.on(
     'conversation:voice',
-    async (data: { audioData: Buffer | ArrayBuffer }) => {
+    async (data: { audioData: Buffer | ArrayBuffer | string }) => {
       try {
         const session = sessionManager.getBySocketId(socket.id);
         if (!session) {
@@ -131,9 +132,21 @@ export function registerConversationHandler(
           return;
         }
 
-        const audioBuffer = Buffer.isBuffer(data.audioData)
-          ? data.audioData
-          : Buffer.from(data.audioData);
+        // Handle audio data from various sources:
+        // - Native clients (iOS/Android) send base64 encoded string
+        // - Buffer/ArrayBuffer from web clients
+        console.log(`[Voice] Received audio data: type=${typeof data.audioData}, isBuffer=${Buffer.isBuffer(data.audioData)}, length=${typeof data.audioData === 'string' ? data.audioData.length : (Buffer.isBuffer(data.audioData) ? data.audioData.length : 'unknown')}`);
+
+        let audioBuffer: Buffer;
+        if (Buffer.isBuffer(data.audioData)) {
+          audioBuffer = data.audioData;
+        } else if (typeof data.audioData === 'string') {
+          audioBuffer = Buffer.from(data.audioData, 'base64');
+        } else {
+          audioBuffer = Buffer.from(data.audioData);
+        }
+
+        console.log(`[Voice] Decoded audio buffer: ${audioBuffer.length} bytes, first4=${audioBuffer.subarray(0, 4).toString('ascii')}`);
 
         // Process through voice pipeline
         socket.emit('conversation:processing', {
@@ -170,7 +183,7 @@ export function registerConversationHandler(
               audioDuration: result.avatarAudioDuration,
               emotion: result.avatarEmotion,
               metadata: result.metadata
-                ? (result.metadata as Record<string, unknown>)
+                ? (result.metadata as Prisma.InputJsonValue)
                 : undefined,
             },
           }),
@@ -212,9 +225,10 @@ export function registerConversationHandler(
           });
         }
       } catch (error) {
-        console.error('Error processing voice message:', error);
+        console.error('[Voice] Error processing voice message:', error);
         socket.emit('conversation:error', {
           message: 'Failed to process voice message',
+          detail: error instanceof Error ? error.message : 'Unknown error',
         });
       }
     },
@@ -305,7 +319,7 @@ export function registerConversationHandler(
             textContent: avatarResponse.text,
             emotion: avatarResponse.emotion,
             metadata: avatarResponse.metadata
-              ? (avatarResponse.metadata as Record<string, unknown>)
+              ? (avatarResponse.metadata as Prisma.InputJsonValue)
               : undefined,
           },
         });
