@@ -20,7 +20,6 @@ final class ConversationViewModel {
     var messages: [Message] = []
     var currentTranscription = ""
     var avatarEmotion: Emotion = .happy
-    var missionTimeRemaining: TimeInterval = 300  // 5 minutes
     var parentInterventionMessage: String?
 
     /// Typewriter state -- character-by-character reveal of avatar messages
@@ -46,7 +45,6 @@ final class ConversationViewModel {
     let child: Child
     let mission: Mission
     private var conversationId: String?
-    private var missionTimer: Timer?
     private var audioBuffer = Data()
 
     /// Base URL for resolving relative audio URLs from the backend
@@ -125,9 +123,6 @@ final class ConversationViewModel {
                 locale: appLocale.rawValue
             )
 
-            // Start mission timer
-            startMissionTimer()
-
             // Transition to intro
             phase = .intro
 
@@ -152,7 +147,7 @@ final class ConversationViewModel {
     }
 
     func onTalkButtonPressed() {
-        guard phase == .active || phase == .wrapUp else { return }
+        guard phase == .active else { return }
         // Allow recording only when idle
         guard audioEngine.state == .idle else {
             print("ConversationVM: Talk pressed but engine state = \(audioEngine.state)")
@@ -167,33 +162,15 @@ final class ConversationViewModel {
         audioEngine.stopListening()
     }
 
-    /// End the mission. If `userInitiated` is true (X button pressed early),
-    /// skip the "Mission Complete" celebration and dismiss immediately.
+    /// End the conversation and dismiss.
     func endMission(userInitiated: Bool = false) async {
-        missionTimer?.invalidate()
-        missionTimer = nil
-
         // Clean up audio & socket first (fast)
         audioEngine.reset()
         webSocket.leaveConversation()
 
-        // If user pressed X early, just mark as abandoned and dismiss without celebration
-        if userInitiated {
-            phase = .dismissed
-            // End conversation on backend in background (don't block UI)
-            if let conversationId {
-                Task.detached { [apiClient] in
-                    _ = try? await apiClient.endConversation(id: conversationId)
-                }
-            }
-            webSocket.disconnect()
-            return
-        }
+        phase = .dismissed
 
-        // Natural timer expiry → show "Mission Complete!" celebration
-        phase = .complete
-
-        // End conversation on backend in background (don't block the celebration screen)
+        // End conversation on backend in background (don't block UI)
         if let conversationId {
             Task.detached { [apiClient] in
                 _ = try? await apiClient.endConversation(id: conversationId)
@@ -215,14 +192,21 @@ final class ConversationViewModel {
                 parentUserId: self.child.parentId,
                 locale: self.appLocale.rawValue
             )
-            // Reset audio engine so mic works again
-            self.audioEngine.state = .idle
 
-            // Fetch any messages we missed during the disconnect
-            Task { @MainActor [weak self] in
-                // Small delay to let the join complete
-                try? await Task.sleep(for: .milliseconds(500))
-                await self?.fetchMissedMessages()
+            // Only fetch missed messages if we were waiting for a response
+            let wasProcessing = self.audioEngine.state == .processing
+            if wasProcessing {
+                // Fetch any messages we missed during the disconnect
+                Task { @MainActor [weak self] in
+                    // Small delay to let the join complete
+                    try? await Task.sleep(for: .milliseconds(500))
+                    await self?.fetchMissedMessages()
+                    // If polling didn't find anything either, reset to idle so mic works
+                    if self?.audioEngine.state == .processing {
+                        print("ConversationVM: Still processing after polling, resetting to idle")
+                        self?.audioEngine.state = .idle
+                    }
+                }
             }
         }
 
@@ -369,6 +353,39 @@ final class ConversationViewModel {
             }
         }
 
+        // Audio data arrives separately (after text response) for faster perceived response
+        webSocket.onConversationAudio = { [weak self] data in
+            guard let self else { return }
+            let messageId = data["messageId"] as? String
+            print("ConversationVM: Received audio for message \(messageId ?? "?"), engineState=\(self.audioEngine.state)")
+
+            // Don't play audio if user already started a new interaction
+            guard self.audioEngine.state == .idle else {
+                print("ConversationVM: Skipping audio — engine busy (\(self.audioEngine.state))")
+                return
+            }
+
+            // Decode base64 audio
+            var audioData: Data?
+            if let b64 = data["audioData"] as? String {
+                audioData = Data(base64Encoded: b64)
+                print("ConversationVM: Decoded audio base64, size=\(audioData?.count ?? 0)")
+            }
+
+            if let audioData, !audioData.isEmpty {
+                let emotion = self.avatarEmotion
+                print("ConversationVM: Playing TTS audio (\(audioData.count) bytes)")
+                self.audioEngine.playResponse(data: audioData, emotion: emotion)
+            } else if let audioUrl = data["audioUrl"] as? String, !audioUrl.isEmpty {
+                let fullUrl = audioUrl.hasPrefix("http") ? audioUrl : "\(self.backendBaseURL)\(audioUrl)"
+                if let url = URL(string: fullUrl) {
+                    let emotion = self.avatarEmotion
+                    print("ConversationVM: Downloading TTS from: \(fullUrl)")
+                    self.audioEngine.playResponseFromURL(url, emotion: emotion)
+                }
+            }
+        }
+
         webSocket.onParentIntervention = { [weak self] id, textContent in
             self?.parentInterventionMessage = textContent
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
@@ -447,23 +464,6 @@ final class ConversationViewModel {
         }
     }
 
-    private func startMissionTimer() {
-        missionTimeRemaining = TimeInterval(mission.durationMinutes * 60)
-
-        missionTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.missionTimeRemaining -= 1
-
-            if self.missionTimeRemaining <= 30 && self.phase == .active {
-                self.phase = .wrapUp
-            }
-
-            if self.missionTimeRemaining <= 0 {
-                Task { await self.endMission() }
-            }
-        }
-    }
-
     /// Fetch messages from backend that may have been missed during WebSocket disconnect.
     /// Polls up to 6 times (every 3 seconds for 18 seconds) because the backend might
     /// still be processing the voice when we first check.
@@ -472,15 +472,18 @@ final class ConversationViewModel {
 
         let maxPolls = 6
         let pollInterval: Duration = .seconds(3)
+        let messageCountBefore = messages.count
 
         for attempt in 1...maxPolls {
             do {
                 let transcript = try await apiClient.getConversationTranscript(conversationId: convId)
                 let existingIds = Set(messages.map(\.id))
+                // Also skip messages that match locally-added text (dedup with optimistic messages)
+                let existingTexts = Set(messages.filter { $0.id.hasPrefix("local_") }.map(\.textContent))
 
                 var newMessages: [Message] = []
                 for msg in transcript.messages {
-                    if !existingIds.contains(msg.id) {
+                    if !existingIds.contains(msg.id) && !existingTexts.contains(msg.textContent) {
                         newMessages.append(msg)
                     }
                 }
@@ -504,9 +507,9 @@ final class ConversationViewModel {
                 print("ConversationVM: Poll \(attempt) failed: \(error)")
             }
 
-            // If we're still processing and haven't found messages, keep polling
-            guard audioEngine.state == .processing else {
-                print("ConversationVM: No longer processing, stop polling (poll \(attempt))")
+            // If a new message arrived via WebSocket while we were polling, stop
+            if messages.count > messageCountBefore {
+                print("ConversationVM: Messages arrived via WebSocket, stop polling (poll \(attempt))")
                 return
             }
 
@@ -522,7 +525,7 @@ final class ConversationViewModel {
     func sendTextMessage(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        guard phase == .active || phase == .wrapUp else { return }
+        guard phase == .active else { return }
         guard audioEngine.state == .idle else { return }
 
         // Immediately show the child's message in chat (don't wait for server)

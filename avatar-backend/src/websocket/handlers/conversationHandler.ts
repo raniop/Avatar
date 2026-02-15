@@ -155,14 +155,58 @@ export function registerConversationHandler(
 
         console.log(`[Voice] Decoded audio buffer: ${audioBuffer.length} bytes, first4=${audioBuffer.subarray(0, 4).toString('ascii')}`);
 
-        // Process through voice pipeline
+        // Process through voice pipeline: STT → Claude → TTS
+        // We split this into phases to send text ASAP, then audio later
         io.to(conversationRoom).emit('conversation:processing', {
           status: 'thinking',
         });
 
-        const result = await voicePipeline.processVoiceMessage({
-          audioBuffer,
+        // ── Phase 1: STT ──────────────────────────────
+        const transcription = await voicePipeline.transcribe(audioBuffer, locale);
+        console.log(`[Voice] Transcription: "${transcription.text}" (${transcription.duration}s)`);
+
+        if (!transcription.text.trim()) {
+          // No speech detected — send a gentle fallback
+          const fallbackText = locale === 'he'
+            ? 'לא שמעתי טוב. אתה יכול לומר את זה שוב?'
+            : "I didn't quite hear that. Can you say it again?";
+
+          const fallbackAudio = await voicePipeline.generateAvatarAudio(
+            fallbackText,
+            conversation.child.avatar?.voiceId || undefined,
+            conversation.child.age,
+          );
+
+          const avatarMsg = await prisma.message.create({
+            data: {
+              conversationId,
+              role: 'AVATAR',
+              textContent: fallbackText,
+              audioUrl: fallbackAudio.audioUrl,
+              audioDuration: fallbackAudio.audioDuration,
+              emotion: 'curious',
+            },
+          });
+
+          const audioBase64 = fallbackAudio.audioBuffer.toString('base64');
+          io.to(conversationRoom).emit('conversation:response', {
+            childMessage: null,
+            avatarMessage: {
+              id: avatarMsg.id,
+              textContent: fallbackText,
+              audioUrl: fallbackAudio.audioUrl,
+              audioData: audioBase64,
+              emotion: 'curious',
+              timestamp: avatarMsg.timestamp,
+            },
+          });
+          return;
+        }
+
+        // ── Phase 2: Claude AI ────────────────────────
+        const avatarResponse = await conversationEngine.processChildMessage({
           conversationId,
+          childText: transcription.text,
           systemPrompt: conversation.systemPrompt,
           messageHistory: conversation.messages,
           child: conversation.child,
@@ -171,81 +215,95 @@ export function registerConversationHandler(
           locale,
         });
 
-        // Save messages to database
-        // Only save child message if transcription is non-empty (avoid empty messages in history)
-        const childMsgPromise = result.childTranscript.trim()
-          ? prisma.message.create({
-              data: {
-                conversationId,
-                role: 'CHILD',
-                textContent: result.childTranscript,
-                audioDuration: result.childAudioDuration,
-              },
-            })
-          : Promise.resolve(null);
+        // ── Phase 3: Emit TEXT immediately (don't wait for TTS) ──
+        // Save child + avatar messages to DB
+        const childMsgPromise = prisma.message.create({
+          data: {
+            conversationId,
+            role: 'CHILD',
+            textContent: transcription.text,
+            audioDuration: transcription.duration,
+          },
+        });
 
-        const [childMsg, avatarMsg] = await Promise.all([
-          childMsgPromise,
-          prisma.message.create({
-            data: {
-              conversationId,
-              role: 'AVATAR',
-              textContent: result.avatarText,
-              audioUrl: result.avatarAudioUrl,
-              audioDuration: result.avatarAudioDuration,
-              emotion: result.avatarEmotion,
-              metadata: result.metadata
-                ? (result.metadata as Prisma.InputJsonValue)
-                : undefined,
-            },
-          }),
-        ]);
+        const avatarMsgPromise = prisma.message.create({
+          data: {
+            conversationId,
+            role: 'AVATAR',
+            textContent: avatarResponse.text,
+            emotion: avatarResponse.emotion,
+            metadata: avatarResponse.metadata
+              ? (avatarResponse.metadata as Prisma.InputJsonValue)
+              : undefined,
+          },
+        });
 
-        // Emit response to the conversation ROOM (not individual socket).
-        // This way if the original socket disconnected and a new one reconnected
-        // and re-joined the room, it will still receive the response.
-        // Send audio as base64 string (not raw Buffer) for our native WebSocket client
-        const voiceAudioBase64 = result.avatarAudioBuffer
-          ? result.avatarAudioBuffer.toString('base64')
-          : null;
-        console.log(`[Voice] Emitting response to room ${conversationRoom}, hasAudio=${!!voiceAudioBase64}`);
+        const [childMsg, avatarMsg] = await Promise.all([childMsgPromise, avatarMsgPromise]);
+
+        // Send text response RIGHT NOW — client shows text immediately
+        console.log(`[Voice] Emitting TEXT response to room ${conversationRoom}`);
         io.to(conversationRoom).emit('conversation:response', {
-          childMessage: childMsg
-            ? {
-                id: childMsg.id,
-                textContent: result.childTranscript,
-                timestamp: childMsg.timestamp,
-              }
-            : null,
+          childMessage: {
+            id: childMsg.id,
+            textContent: transcription.text,
+            timestamp: childMsg.timestamp,
+          },
           avatarMessage: {
             id: avatarMsg.id,
-            textContent: result.avatarText,
-            audioUrl: result.avatarAudioUrl,
-            audioData: voiceAudioBase64, // Base64 encoded audio for immediate playback
-            emotion: result.avatarEmotion,
+            textContent: avatarResponse.text,
+            audioUrl: null,  // Audio comes later
+            audioData: null, // Audio comes later
+            emotion: avatarResponse.emotion,
             timestamp: avatarMsg.timestamp,
           },
         });
+
+        // ── Phase 4: Generate TTS and send audio separately ──
+        try {
+          const speechResult = await voicePipeline.generateAvatarAudio(
+            avatarResponse.text,
+            conversation.child.avatar?.voiceId || undefined,
+            conversation.child.age,
+          );
+
+          // Update DB with audio URL
+          await prisma.message.update({
+            where: { id: avatarMsg.id },
+            data: {
+              audioUrl: speechResult.audioUrl,
+              audioDuration: speechResult.audioDuration,
+            },
+          });
+
+          // Send audio to client
+          const audioBase64 = speechResult.audioBuffer.toString('base64');
+          console.log(`[Voice] Emitting AUDIO to room ${conversationRoom}, size=${audioBase64.length}`);
+          io.to(conversationRoom).emit('conversation:audio', {
+            messageId: avatarMsg.id,
+            audioData: audioBase64,
+            audioUrl: speechResult.audioUrl,
+          });
+        } catch (ttsErr) {
+          console.error('[Voice] TTS generation failed:', ttsErr);
+        }
 
         // Broadcast to parent monitoring room
         const currentSession = sessionManager.getBySocketId(socket.id) || session;
         if (currentSession.isParentMonitoring && currentSession.parentSocketId) {
           io.to(currentSession.parentSocketId).emit('parent:message_update', {
             conversationId,
-            childMessage: childMsg
-              ? {
-                  id: childMsg.id,
-                  textContent: result.childTranscript,
-                  timestamp: childMsg.timestamp,
-                }
-              : null,
+            childMessage: {
+              id: childMsg.id,
+              textContent: transcription.text,
+              timestamp: childMsg.timestamp,
+            },
             avatarMessage: {
               id: avatarMsg.id,
-              textContent: result.avatarText,
-              emotion: result.avatarEmotion,
+              textContent: avatarResponse.text,
+              emotion: avatarResponse.emotion,
               timestamp: avatarMsg.timestamp,
             },
-            metadata: result.metadata,
+            metadata: avatarResponse.metadata,
           });
         }
       } catch (error) {
@@ -344,49 +402,21 @@ export function registerConversationHandler(
             locale,
           });
 
-        // Generate TTS audio for the avatar response (in parallel with DB save)
-        const ttsPromise = voicePipeline.generateAvatarAudio(
-          avatarResponse.text,
-          conversation.child.avatar?.voiceId || undefined,
-          conversation.child.age,
-        ).catch((err) => {
-          console.error('[Text] TTS generation failed:', err);
-          return null;
+        // Save avatar message to DB immediately (without audio)
+        const avatarMsg = await prisma.message.create({
+          data: {
+            conversationId,
+            role: 'AVATAR',
+            textContent: avatarResponse.text,
+            emotion: avatarResponse.emotion,
+            metadata: avatarResponse.metadata
+              ? (avatarResponse.metadata as Prisma.InputJsonValue)
+              : undefined,
+          },
         });
 
-        // Save avatar response to DB (in parallel with TTS)
-        const [ttsResult, avatarMsg] = await Promise.all([
-          ttsPromise,
-          prisma.message.create({
-            data: {
-              conversationId,
-              role: 'AVATAR',
-              textContent: avatarResponse.text,
-              audioUrl: undefined, // Will update after TTS
-              emotion: avatarResponse.emotion,
-              metadata: avatarResponse.metadata
-                ? (avatarResponse.metadata as Prisma.InputJsonValue)
-                : undefined,
-            },
-          }),
-        ]);
-
-        // Update DB with audio URL if TTS succeeded
-        if (ttsResult?.audioUrl) {
-          await prisma.message.update({
-            where: { id: avatarMsg.id },
-            data: {
-              audioUrl: ttsResult.audioUrl,
-              audioDuration: ttsResult.audioDuration,
-            },
-          });
-        }
-
-        // Emit response to the conversation room (include audio data as base64 for immediate playback)
-        const audioDataBase64 = ttsResult?.audioBuffer
-          ? ttsResult.audioBuffer.toString('base64')
-          : null;
-        console.log(`[Text] Emitting response to room ${conversationRoom}, hasAudio=${!!audioDataBase64}, audioSize=${audioDataBase64?.length || 0}`);
+        // Emit TEXT response immediately — client shows text right away
+        console.log(`[Text] Emitting TEXT response to room ${conversationRoom}`);
         io.to(conversationRoom).emit('conversation:response', {
           childMessage: {
             id: childMsg.id,
@@ -396,12 +426,41 @@ export function registerConversationHandler(
           avatarMessage: {
             id: avatarMsg.id,
             textContent: avatarResponse.text,
-            audioUrl: ttsResult?.audioUrl || null,
-            audioData: audioDataBase64,
+            audioUrl: null,
+            audioData: null,
             emotion: avatarResponse.emotion,
             timestamp: avatarMsg.timestamp,
           },
         });
+
+        // Generate TTS audio and send it separately
+        try {
+          const ttsResult = await voicePipeline.generateAvatarAudio(
+            avatarResponse.text,
+            conversation.child.avatar?.voiceId || undefined,
+            conversation.child.age,
+          );
+
+          // Update DB with audio info
+          await prisma.message.update({
+            where: { id: avatarMsg.id },
+            data: {
+              audioUrl: ttsResult.audioUrl,
+              audioDuration: ttsResult.audioDuration,
+            },
+          });
+
+          // Send audio to client
+          const audioBase64 = ttsResult.audioBuffer.toString('base64');
+          console.log(`[Text] Emitting AUDIO to room ${conversationRoom}, size=${audioBase64.length}`);
+          io.to(conversationRoom).emit('conversation:audio', {
+            messageId: avatarMsg.id,
+            audioData: audioBase64,
+            audioUrl: ttsResult.audioUrl,
+          });
+        } catch (ttsErr) {
+          console.error('[Text] TTS generation failed:', ttsErr);
+        }
 
         // Broadcast to parent monitoring
         const currentSession = sessionManager.getBySocketId(socket.id) || session;

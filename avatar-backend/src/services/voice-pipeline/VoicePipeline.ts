@@ -48,6 +48,14 @@ export class VoicePipeline {
   }
 
   /**
+   * Transcribe audio to text (STT only).
+   * Used when the caller wants to split the pipeline into phases.
+   */
+  async transcribe(audioBuffer: Buffer, locale: string) {
+    return this.stt.transcribe(audioBuffer, locale);
+  }
+
+  /**
    * Process a voice message through the full pipeline:
    * 1. Transcribe child's audio to text (STT)
    * 2. Process text through conversation engine (Claude)

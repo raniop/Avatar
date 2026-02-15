@@ -30,6 +30,7 @@ final class WebSocketClient {
     var onConversationJoined: ((String) -> Void)?                  // (conversationId)
     var onConversationProcessing: ((String) -> Void)?              // (status: "transcribing"|"thinking")
     var onConversationResponse: (([String: Any]) -> Void)?         // (full response data)
+    var onConversationAudio: (([String: Any]) -> Void)?            // (audio data for a message)
     var onParentIntervention: ((String, String) -> Void)?          // (id, textContent)
     var onConversationEndedByParent: (() -> Void)?
     var onConversationError: ((String) -> Void)?
@@ -369,6 +370,9 @@ final class WebSocketClient {
 
         case "conversation:response":
             onConversationResponse?(data)
+
+        case "conversation:audio":
+            onConversationAudio?(data)
 
         case "conversation:parent_intervention":
             let id = data["id"] as? String ?? ""

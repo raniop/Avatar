@@ -24,12 +24,10 @@ struct ConversationView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Top bar with timer
+                // Top bar with end button
                 ConversationTopBar(
-                    timeRemaining: viewModel.missionTimeRemaining,
-                    phase: viewModel.phase,
                     locale: L,
-                    onClose: {
+                    onEnd: {
                         Task { await viewModel.endMission(userInitiated: true) }
                     }
                 )
@@ -113,15 +111,9 @@ struct ConversationView: View {
                 .padding(.bottom, AppTheme.Spacing.sm)
             }
 
-            // Phase overlays
+            // Loading overlay
             if viewModel.phase == .loading {
                 LoadingOverlay(text: L.gettingReady)
-            }
-
-            if viewModel.phase == .complete {
-                MissionCompleteOverlay(locale: L) {
-                    dismiss()
-                }
             }
 
             // Parent intervention indicator
@@ -210,58 +202,28 @@ struct TypingIndicator: View {
 // MARK: - Sub-components
 
 struct ConversationTopBar: View {
-    let timeRemaining: TimeInterval
-    let phase: ConversationViewModel.Phase
     let locale: AppLocale
-    let onClose: () -> Void
+    let onEnd: () -> Void
 
     var body: some View {
         HStack {
-            // Phase indicator
-            Text(phaseText)
-                .font(AppTheme.Fonts.caption)
-                .foregroundStyle(.white.opacity(0.6))
-
             Spacer()
 
-            // Timer
-            HStack(spacing: 4) {
-                Image(systemName: "clock.fill")
-                    .font(.caption)
-                Text(timeString)
-                    .font(.system(.body, design: .rounded).monospacedDigit())
-            }
-            .foregroundStyle(timeRemaining <= 30 ? AppTheme.Colors.danger : .white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(.black.opacity(0.3))
-            .clipShape(Capsule())
-
-            Spacer()
-
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.white.opacity(0.8))
+            // End conversation button
+            Button(action: onEnd) {
+                HStack(spacing: 6) {
+                    Text(locale == .hebrew ? "סיום" : "End")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(.white.opacity(0.2))
+                .clipShape(Capsule())
             }
         }
         .padding(.horizontal, AppTheme.Spacing.md)
         .padding(.top, AppTheme.Spacing.sm)
-    }
-
-    private var timeString: String {
-        let minutes = Int(timeRemaining) / 60
-        let seconds = Int(timeRemaining) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-
-    private var phaseText: String {
-        switch phase {
-        case .intro: locale.startingDots
-        case .active: locale.adventure
-        case .wrapUp: locale.wrappingUp
-        default: ""
-        }
     }
 }
 
@@ -432,7 +394,7 @@ struct ChatInputBar: View {
     }
 }
 
-// MARK: - Compact Mic Button
+// MARK: - Compact Mic Button (tap to start, auto-stops on silence)
 
 struct MicButton: View {
     let isListening: Bool
@@ -442,14 +404,13 @@ struct MicButton: View {
     let onPress: () -> Void
     let onRelease: () -> Void
 
-    @State private var isPressing = false
-
-    private var canRecord: Bool {
+    private var canTap: Bool {
         !isProcessing && !isPlayingResponse
     }
 
     var body: some View {
         ZStack {
+            // Pulse ring when listening
             if isListening {
                 Circle()
                     .stroke(.white.opacity(0.3), lineWidth: 2)
@@ -461,8 +422,6 @@ struct MicButton: View {
                 .fill(buttonColor)
                 .frame(width: 48, height: 48)
                 .shadow(color: buttonColor.opacity(0.4), radius: 4, y: 2)
-                .scaleEffect(isPressing ? 0.9 : 1.0)
-                .animation(.easeOut(duration: 0.1), value: isPressing)
 
             Group {
                 if isProcessing {
@@ -474,26 +433,22 @@ struct MicButton: View {
                         .font(.body)
                         .foregroundStyle(.white)
                 } else {
-                    Image(systemName: isListening ? "mic.fill" : "mic")
+                    Image(systemName: isListening ? "stop.fill" : "mic.fill")
                         .font(.body)
                         .foregroundStyle(.white)
                 }
             }
         }
         .contentShape(Circle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    guard canRecord, !isPressing else { return }
-                    isPressing = true
-                    onPress()
-                }
-                .onEnded { _ in
-                    isPressing = false
-                    if isListening { onRelease() }
-                }
-        )
-        .allowsHitTesting(canRecord)
+        .onTapGesture {
+            guard canTap else { return }
+            if isListening {
+                onRelease()  // Tap again to stop manually
+            } else {
+                onPress()    // Tap to start (auto-stops on silence)
+            }
+        }
+        .allowsHitTesting(canTap)
     }
 
     private var buttonColor: Color {

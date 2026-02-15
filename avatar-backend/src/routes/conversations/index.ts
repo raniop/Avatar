@@ -169,7 +169,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
           textContent: avatarMessage.textContent,
           emotion: avatarMessage.emotion,
           audioUrl: openingAudioUrl,
-          audioData: openingAudioBuffer ? openingAudioBuffer.toString('base64') : null,
+          audioData: openingAudioBuffer ? (openingAudioBuffer as Buffer).toString('base64') : null,
           timestamp: avatarMessage.timestamp,
         },
       });
