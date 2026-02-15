@@ -106,7 +106,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
         },
       });
 
-      // Generate opening message from avatar
+      // Generate opening message from avatar (using fast Haiku model)
       const openingMessage = await conversationEngine.generateOpeningMessage({
         conversationId: conversation.id,
         child,
@@ -116,37 +116,49 @@ export async function conversationRoutes(fastify: FastifyInstance) {
         systemPrompt,
       });
 
-      // Generate TTS audio for the opening message so kids can hear it
+      // Run TTS and DB save in parallel to minimize wait time
       let openingAudioUrl: string | null = null;
       let openingAudioDuration: number | null = null;
       let openingAudioBuffer: Buffer | null = null;
-      try {
-        console.log(`[TTS] Generating opening audio for: "${openingMessage.text.substring(0, 60)}...", voiceId=${child.avatar?.voiceId || 'default'}, age=${child.age}`);
-        const ttsResult = await voicePipeline.generateAvatarAudio(
-          openingMessage.text,
-          child.avatar?.voiceId || undefined,
-          child.age,
-        );
-        openingAudioUrl = ttsResult.audioUrl;
-        openingAudioDuration = ttsResult.audioDuration;
-        openingAudioBuffer = ttsResult.audioBuffer;
-        console.log(`[TTS] Opening audio OK: url=${openingAudioUrl}, duration=${openingAudioDuration}s, bufferSize=${openingAudioBuffer.length}`);
-      } catch (ttsError: any) {
-        console.error('[TTS] Failed to generate opening TTS:', ttsError?.message || ttsError);
-        // Continue without audio -- text will still appear
-      }
 
-      // Save the opening message
-      const avatarMessage = await prisma.message.create({
+      const ttsPromise = (async () => {
+        try {
+          console.log(`[TTS] Generating opening audio for: "${openingMessage.text.substring(0, 60)}...", voiceId=${child.avatar?.voiceId || 'default'}, age=${child.age}`);
+          const ttsResult = await voicePipeline.generateAvatarAudio(
+            openingMessage.text,
+            child.avatar?.voiceId || undefined,
+            child.age,
+          );
+          openingAudioUrl = ttsResult.audioUrl;
+          openingAudioDuration = ttsResult.audioDuration;
+          openingAudioBuffer = ttsResult.audioBuffer;
+          console.log(`[TTS] Opening audio OK: url=${openingAudioUrl}, duration=${openingAudioDuration}s, bufferSize=${openingAudioBuffer.length}`);
+        } catch (ttsError: any) {
+          console.error('[TTS] Failed to generate opening TTS:', ttsError?.message || ttsError);
+          // Continue without audio -- text will still appear
+        }
+      })();
+
+      // Save the opening message (without audio URL initially)
+      const dbSavePromise = prisma.message.create({
         data: {
           conversationId: conversation.id,
           role: 'AVATAR',
           textContent: openingMessage.text,
           emotion: openingMessage.emotion,
-          audioUrl: openingAudioUrl,
-          audioDuration: openingAudioDuration,
         },
       });
+
+      // Wait for both TTS and DB save to complete in parallel
+      const [, avatarMessage] = await Promise.all([ttsPromise, dbSavePromise]);
+
+      // Update the message with audio URL if TTS succeeded
+      if (openingAudioUrl) {
+        await prisma.message.update({
+          where: { id: avatarMessage.id },
+          data: { audioUrl: openingAudioUrl, audioDuration: openingAudioDuration },
+        });
+      }
 
       return reply.status(201).send({
         conversation: {
@@ -162,7 +174,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
           role: avatarMessage.role,
           textContent: avatarMessage.textContent,
           emotion: avatarMessage.emotion,
-          audioUrl: avatarMessage.audioUrl,
+          audioUrl: openingAudioUrl,
           audioData: openingAudioBuffer ? openingAudioBuffer.toString('base64') : null,
           timestamp: avatarMessage.timestamp,
         },
