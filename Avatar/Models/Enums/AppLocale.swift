@@ -71,7 +71,15 @@ enum AppLocale: String, Codable, CaseIterable {
     func childGreeting(_ childName: String) -> String {
         self == .hebrew ? "היי \(childName)!" : "Hey \(childName)!"
     }
-    var readyForAdventure: String { self == .hebrew ? "מוכנים להרפתקה?" : "Ready for an adventure?" }
+    func readyForAdventure(gender: String? = nil) -> String {
+        if self == .hebrew {
+            switch gender?.lowercased() {
+            case "girl": return "מוכנה להרפתקה?"
+            default: return "מוכן להרפתקה?"
+            }
+        }
+        return "Ready for an adventure?"
+    }
     var changeAvatar: String { self == .hebrew ? "שנה אווטאר" : "Change Avatar" }
     var createAvatar: String { self == .hebrew ? "צור את האווטאר שלך!" : "Create Your Avatar!" }
     var letsGo: String { self == .hebrew ? "יאללה!" : "Let's Go!" }
@@ -110,6 +118,17 @@ enum AppLocale: String, Codable, CaseIterable {
     var createFirstChild: String { self == .hebrew ? "צור את הילד/ה הראשון/ה" : "Create Your First Child" }
     var enterAsParentFirst: String { self == .hebrew ? "היכנס כהורה קודם כדי להוסיף ילדים" : "Enter as parent first to add children" }
     var createChildHint: String { self == .hebrew ? "צור ילד 😊" : "Create a child 😊" }
+
+    // Multi-step child creation flow
+    var uploadChildPhoto: String { self == .hebrew ? "העלו תמונה של הילד/ה" : "Upload your child's photo" }
+    var uploadChildPhotoSubtitle: String { self == .hebrew ? "נהפוך אותה לאווטאר מיוחד!" : "We'll turn it into a special avatar!" }
+    var whatsTheirName: String { self == .hebrew ? "מה השם?" : "What's their name?" }
+    var whatsTheirNameSubtitle: String { self == .hebrew ? "הכניסו את שם הילד/ה" : "Enter your child's name" }
+    var whatDoTheyLove: String { self == .hebrew ? "מה הילד/ה אוהב/ת?" : "What do they love?" }
+    var whatDoTheyLoveSubtitle: String { self == .hebrew ? "בחרו תחומי עניין ופרטים נוספים" : "Choose interests and more details" }
+    var almostReady: String { self == .hebrew ? "כמעט מוכן..." : "Almost ready..." }
+    var letsGoButton: String { self == .hebrew ? "בוא נתחיל!" : "Let's go!" }
+    var meetAvatar: String { self == .hebrew ? "הכירו את האווטאר!" : "Meet the avatar!" }
 
     // MARK: - Child Profile Setup
 

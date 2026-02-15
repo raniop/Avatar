@@ -93,7 +93,14 @@
       "WebFetch(domain:sarunw.com)",
       "WebFetch(domain:useyourloaf.com)",
       "Bash(# Verify the standalone image AND compiled storyboard are in the bundle ls -la \"\"build/Build/Products/Debug-iphonesimulator/Avatar.app/LaunchBG.png\"\" && echo \"\"✓ LaunchBG.png in bundle\"\" ls -la \"\"build/Build/Products/Debug-iphonesimulator/Avatar.app/LaunchScreen.storyboardc/\"\" && echo \"\"✓ Storyboard compiled\"\" strings \"\"build/Build/Products/Debug-iphonesimulator/Avatar.app/LaunchScreen.storyboardc/01J-lp-oVM-view-Ze5-6b-2t3.nib\"\")",
-      "Bash(xcrun:*)"
+      "Bash(xcrun:*)",
+      "WebFetch(domain:platform.openai.com)",
+      "WebFetch(domain:developers.openai.com)",
+      "WebFetch(domain:blog.laozhang.ai)",
+      "WebFetch(domain:www.cometapi.com)",
+      "Bash(nc:*)",
+      "Bash(PGPASSWORD=\"mifce7-caPvad-possag\" psql:*)",
+      "Bash(railway link:*)"
     ]
   }
 }

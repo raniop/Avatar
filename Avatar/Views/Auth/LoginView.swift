@@ -22,9 +22,12 @@ struct LoginView: View {
 
                 // Logo
                 VStack(spacing: AppTheme.Spacing.sm) {
-                    Image(systemName: "face.smiling.inverse")
-                        .font(.system(size: 60))
-                        .foregroundStyle(.white)
+                    Image("SplashLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 100, height: 100)
+                        .clipShape(Circle())
+                        .shadow(color: .black.opacity(0.2), radius: 10, y: 5)
 
                     Text("Avatar")
                         .font(AppTheme.Fonts.title)

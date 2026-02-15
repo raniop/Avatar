@@ -106,9 +106,15 @@ final class APIClient: Sendable {
 
     // MARK: - Missions
 
-    func getMissions(age: Int? = nil, locale: String = "en") async throws -> [Mission] {
+    func getMissions(age: Int? = nil, locale: String = "en", interests: [String]? = nil) async throws -> [Mission] {
         var path = "/missions?locale=\(locale)"
         if let age { path += "&age=\(age)" }
+        if let interests, !interests.isEmpty {
+            let joined = interests.joined(separator: ",")
+            if let encoded = joined.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                path += "&interests=\(encoded)"
+            }
+        }
         let wrapper: MissionsWrapper = try await get(path)
         return wrapper.missions
     }

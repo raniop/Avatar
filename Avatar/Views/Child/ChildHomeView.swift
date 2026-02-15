@@ -44,27 +44,9 @@ struct ChildHomeView: View {
                                 .font(AppTheme.Fonts.childLarge)
                                 .foregroundStyle(.white)
 
-                            Text(L.readyForAdventure)
+                            Text(L.readyForAdventure(gender: viewModel.child?.gender))
                                 .font(AppTheme.Fonts.childBody)
                                 .foregroundStyle(.white.opacity(0.9))
-
-                            // Create or change avatar button
-                            NavigationLink {
-                                AvatarCreationView()
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: viewModel.hasAvatar
-                                          ? "arrow.triangle.2.circlepath"
-                                          : "wand.and.stars")
-                                    Text(viewModel.hasAvatar ? L.changeAvatar : L.createAvatar)
-                                }
-                                .font(AppTheme.Fonts.caption)
-                                .foregroundStyle(.white.opacity(0.7))
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(.white.opacity(0.15))
-                                .clipShape(Capsule())
-                            }
                         }
                         .padding(.top, AppTheme.Spacing.xxl)
 

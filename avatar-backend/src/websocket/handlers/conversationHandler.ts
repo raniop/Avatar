@@ -331,20 +331,45 @@ export function registerConversationHandler(
             locale,
           });
 
-        // Save avatar response
-        const avatarMsg = await prisma.message.create({
-          data: {
-            conversationId,
-            role: 'AVATAR',
-            textContent: avatarResponse.text,
-            emotion: avatarResponse.emotion,
-            metadata: avatarResponse.metadata
-              ? (avatarResponse.metadata as Prisma.InputJsonValue)
-              : undefined,
-          },
+        // Generate TTS audio for the avatar response (in parallel with DB save)
+        const ttsPromise = voicePipeline.generateAvatarAudio(
+          avatarResponse.text,
+          conversation.child.avatar?.voiceId || undefined,
+          conversation.child.age,
+        ).catch((err) => {
+          console.error('[Text] TTS generation failed:', err);
+          return null;
         });
 
-        // Emit response to the conversation room
+        // Save avatar response to DB (in parallel with TTS)
+        const [ttsResult, avatarMsg] = await Promise.all([
+          ttsPromise,
+          prisma.message.create({
+            data: {
+              conversationId,
+              role: 'AVATAR',
+              textContent: avatarResponse.text,
+              audioUrl: undefined, // Will update after TTS
+              emotion: avatarResponse.emotion,
+              metadata: avatarResponse.metadata
+                ? (avatarResponse.metadata as Prisma.InputJsonValue)
+                : undefined,
+            },
+          }),
+        ]);
+
+        // Update DB with audio URL if TTS succeeded
+        if (ttsResult?.audioUrl) {
+          await prisma.message.update({
+            where: { id: avatarMsg.id },
+            data: {
+              audioUrl: ttsResult.audioUrl,
+              audioDuration: ttsResult.audioDuration,
+            },
+          });
+        }
+
+        // Emit response to the conversation room (include audio data for immediate playback)
         io.to(conversationRoom).emit('conversation:response', {
           childMessage: {
             id: childMsg.id,
@@ -354,6 +379,8 @@ export function registerConversationHandler(
           avatarMessage: {
             id: avatarMsg.id,
             textContent: avatarResponse.text,
+            audioUrl: ttsResult?.audioUrl || null,
+            audioData: ttsResult?.audioBuffer || null,
             emotion: avatarResponse.emotion,
             timestamp: avatarMsg.timestamp,
           },

@@ -17,6 +17,9 @@ struct MissionCarouselView: View {
             .padding(.horizontal, AppTheme.Spacing.lg)
         }
         .frame(height: 200)
+        // Force LTR so the first mission always appears on the leading edge
+        // (left in both LTR and RTL). Users scroll right to see more.
+        .environment(\.layoutDirection, .leftToRight)
     }
 }
 

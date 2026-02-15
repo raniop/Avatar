@@ -205,6 +205,27 @@ final class ConversationViewModel {
     // MARK: - Setup
 
     private func setupCallbacks() {
+        // WebSocket reconnected — re-join conversation room and fetch missed messages
+        webSocket.onReconnected = { [weak self] in
+            guard let self, let convId = self.conversationId else { return }
+            print("ConversationVM: Re-joining conversation after reconnect: \(convId)")
+            self.webSocket.joinConversation(
+                conversationId: convId,
+                childId: self.child.id,
+                parentUserId: self.child.parentId,
+                locale: self.appLocale.rawValue
+            )
+            // Reset audio engine so mic works again
+            self.audioEngine.state = .idle
+
+            // Fetch any messages we missed during the disconnect
+            Task { @MainActor [weak self] in
+                // Small delay to let the join complete
+                try? await Task.sleep(for: .milliseconds(500))
+                await self?.fetchMissedMessages()
+            }
+        }
+
         // Audio chunks -> accumulate in buffer (backend expects complete audio, not streaming)
         audioEngine.onAudioChunkReady = { [weak self] chunk in
             self?.audioBuffer.append(chunk)
@@ -230,9 +251,10 @@ final class ConversationViewModel {
             print("ConversationVM: Sending \(wavData.count) bytes WAV audio (\(pcmBytes) PCM bytes, ~\(String(format: "%.1f", Double(pcmBytes) / 32000.0))s)")
             self.webSocket.sendVoiceData(audioData: wavData)
 
-            // Start a safety timeout: if no response within 15 seconds, reset to idle
+            // Start a safety timeout: if no response within 45 seconds, reset to idle
+            // Voice pipeline (Whisper STT + Claude AI + TTS) can take 15-30s
             Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(15))
+                try? await Task.sleep(for: .seconds(45))
                 guard let self else { return }
                 if self.audioEngine.state == .processing {
                     print("ConversationVM: Processing timeout — resetting to idle")
@@ -269,15 +291,35 @@ final class ConversationViewModel {
             if let childMsg = data["childMessage"] as? [String: Any],
                let childText = childMsg["textContent"] as? String {
                 let childId = childMsg["id"] as? String ?? UUID().uuidString
-                let message = Message(
-                    id: childId,
-                    conversationId: self.conversationId ?? "",
-                    role: .child,
-                    textContent: childText,
-                    isParentIntervention: false,
-                    timestamp: Date()
-                )
-                self.messages.append(message)
+
+                // Check if we already added this message locally (from sendTextMessage)
+                let alreadyExists = self.messages.contains { msg in
+                    msg.role == .child && msg.textContent == childText && msg.id.hasPrefix("local_")
+                }
+
+                if alreadyExists {
+                    // Update the local message with the server-assigned ID
+                    if let idx = self.messages.lastIndex(where: { $0.role == .child && $0.textContent == childText && $0.id.hasPrefix("local_") }) {
+                        self.messages[idx] = Message(
+                            id: childId,
+                            conversationId: self.conversationId ?? "",
+                            role: .child,
+                            textContent: childText,
+                            isParentIntervention: false,
+                            timestamp: Date()
+                        )
+                    }
+                } else {
+                    let message = Message(
+                        id: childId,
+                        conversationId: self.conversationId ?? "",
+                        role: .child,
+                        textContent: childText,
+                        isParentIntervention: false,
+                        timestamp: Date()
+                    )
+                    self.messages.append(message)
+                }
                 self.currentTranscription = ""
                 print("ConversationVM: Child said: \(childText)")
             }
@@ -420,5 +462,81 @@ final class ConversationViewModel {
                 Task { await self.endMission() }
             }
         }
+    }
+
+    /// Fetch messages from backend that may have been missed during WebSocket disconnect.
+    /// Polls up to 6 times (every 3 seconds for 18 seconds) because the backend might
+    /// still be processing the voice when we first check.
+    private func fetchMissedMessages() async {
+        guard let convId = conversationId else { return }
+
+        let maxPolls = 6
+        let pollInterval: Duration = .seconds(3)
+
+        for attempt in 1...maxPolls {
+            do {
+                let transcript = try await apiClient.getConversationTranscript(conversationId: convId)
+                let existingIds = Set(messages.map(\.id))
+
+                var newMessages: [Message] = []
+                for msg in transcript.messages {
+                    if !existingIds.contains(msg.id) {
+                        newMessages.append(msg)
+                    }
+                }
+
+                if !newMessages.isEmpty {
+                    print("ConversationVM: Found \(newMessages.count) missed messages (poll \(attempt)/\(maxPolls))")
+                    for msg in newMessages {
+                        messages.append(msg)
+
+                        if msg.role == .avatar {
+                            let audioUrl = msg.audioUrl
+                            let emotion = msg.emotion ?? .happy
+                            self.avatarEmotion = emotion
+                            self.animator.transitionToEmotion(emotion)
+                            self.startTypewriter(fullText: msg.textContent, audioUrl: audioUrl, emotion: emotion)
+                        }
+                    }
+                    return // Got messages, stop polling
+                }
+            } catch {
+                print("ConversationVM: Poll \(attempt) failed: \(error)")
+            }
+
+            // If we're still processing and haven't found messages, keep polling
+            guard audioEngine.state == .processing else {
+                print("ConversationVM: No longer processing, stop polling (poll \(attempt))")
+                return
+            }
+
+            if attempt < maxPolls {
+                print("ConversationVM: No missed messages yet, polling again in 3s (poll \(attempt)/\(maxPolls))")
+                try? await Task.sleep(for: pollInterval)
+            }
+        }
+        print("ConversationVM: Polling exhausted, no missed messages found")
+    }
+
+    /// Send a text message typed by the child via keyboard
+    func sendTextMessage(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard phase == .active || phase == .wrapUp else { return }
+        guard audioEngine.state == .idle else { return }
+
+        // Immediately show the child's message in chat (don't wait for server)
+        let childMsg = Message(
+            id: "local_\(UUID().uuidString)",
+            conversationId: conversationId ?? "",
+            role: .child,
+            textContent: trimmed,
+            isParentIntervention: false,
+            timestamp: Date()
+        )
+        messages.append(childMsg)
+
+        audioEngine.state = .processing
+        webSocket.sendTextMessage(textContent: trimmed)
     }
 }

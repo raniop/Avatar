@@ -128,13 +128,13 @@ export class ConversationEngine {
 
       const content = response.content[0];
       if (content.type !== 'text') {
-        return this.defaultOpeningMessage(child.name, avatarName);
+        return this.defaultOpeningMessage(child.name, avatarName, locale === 'he');
       }
 
       return this.parseAvatarResponse(content.text, 'happy');
     } catch (error) {
       console.error('Failed to generate opening message:', error);
-      return this.defaultOpeningMessage(child.name, avatarName);
+      return this.defaultOpeningMessage(child.name, avatarName, locale === 'he');
     }
   }
 
@@ -161,6 +161,8 @@ export class ConversationEngine {
       parentQuestions,
       locale,
     } = params;
+
+    const isHebrew = locale === 'he';
 
     // ── Step 1: Safety check child's message ─────
     const childSafety = this.safetyFilter.checkChildMessage(childText);
@@ -195,6 +197,7 @@ export class ConversationEngine {
       childSafety.severity !== 'none'
         ? this.buildSafetyContextNote(childSafety.severity)
         : null,
+      isHebrew,
     );
 
     // ── Step 4: Generate response via Claude ─────
@@ -245,7 +248,7 @@ export class ConversationEngine {
       };
     } catch (error) {
       console.error('Failed to process child message:', error);
-      return this.defaultResponse();
+      return this.defaultResponse(isHebrew);
     }
   }
 
@@ -257,6 +260,7 @@ export class ConversationEngine {
     currentChildText: string,
     questionWeaveHint: string | null,
     safetyNote: string | null,
+    isHebrew: boolean = false,
   ): Anthropic.MessageParam[] {
     const messages: Anthropic.MessageParam[] = [];
 
@@ -288,6 +292,9 @@ export class ConversationEngine {
 
     // Build the current user message with optional context
     let currentMessage = currentChildText;
+    const langReminder = isHebrew
+      ? ' You MUST respond in Hebrew (עברית).'
+      : '';
 
     if (questionWeaveHint || safetyNote) {
       const contextParts: string[] = [];
@@ -305,11 +312,11 @@ export class ConversationEngine {
         contextParts.join('\n') +
         '\n\n' +
         `Child says: "${currentChildText}"\n\n` +
-        `Respond naturally as the avatar. Output JSON: {"text": "your response", "emotion": "emotion_name"}`;
+        `Respond naturally as the avatar.${langReminder} Output JSON: {"text": "your response", "emotion": "emotion_name"}`;
     } else {
       currentMessage =
         `Child says: "${currentChildText}"\n\n` +
-        `Respond naturally as the avatar. Output JSON: {"text": "your response", "emotion": "emotion_name"}`;
+        `Respond naturally as the avatar.${langReminder} Output JSON: {"text": "your response", "emotion": "emotion_name"}`;
     }
 
     messages.push({
@@ -396,9 +403,12 @@ export class ConversationEngine {
   private defaultOpeningMessage(
     childName: string,
     avatarName: string,
+    isHebrew: boolean = false,
   ): AvatarResponse {
     return {
-      text: `Hey ${childName}! It's me, ${avatarName}! I'm so happy to see you today. What's something fun that happened to you?`,
+      text: isHebrew
+        ? `היי ${childName}! זה אני, ${avatarName}! כל כך שמח לראות אותך היום. מה משהו כיף שקרה לך?`
+        : `Hey ${childName}! It's me, ${avatarName}! I'm so happy to see you today. What's something fun that happened to you?`,
       emotion: 'happy',
     };
   }
@@ -406,9 +416,11 @@ export class ConversationEngine {
   /**
    * Default response fallback.
    */
-  private defaultResponse(): AvatarResponse {
+  private defaultResponse(isHebrew: boolean = false): AvatarResponse {
     return {
-      text: "Wow, that's really cool! I love hearing about that. What else is on your mind?",
+      text: isHebrew
+        ? 'וואו, זה ממש מגניב! אני אוהב לשמוע על זה. מה עוד יש לך בראש?'
+        : "Wow, that's really cool! I love hearing about that. What else is on your mind?",
       emotion: 'curious',
     };
   }

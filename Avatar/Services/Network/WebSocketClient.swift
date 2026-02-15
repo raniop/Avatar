@@ -23,6 +23,9 @@ final class WebSocketClient {
 
     // MARK: - Callbacks
 
+    // Connection events
+    var onReconnected: (() -> Void)?                                // Called after successful reconnect
+
     // Conversation events
     var onConversationJoined: ((String) -> Void)?                  // (conversationId)
     var onConversationProcessing: ((String) -> Void)?              // (status: "transcribing"|"thinking")
@@ -45,6 +48,10 @@ final class WebSocketClient {
     private let baseURL: String
     private var pingTimer: Timer?
     private var sid: String?
+    private var authToken: String?
+    private var reconnectAttempts = 0
+    private let maxReconnectAttempts = 5
+    private var isReconnecting = false  // Track reconnect state separately
 
     init(baseURL: String = "https://poetic-serenity-production-7de7.up.railway.app") {
         self.baseURL = baseURL
@@ -55,6 +62,7 @@ final class WebSocketClient {
     func connect(token: String? = nil) {
         guard connectionState != .connected && connectionState != .connecting else { return }
         connectionState = .connecting
+        self.authToken = token
 
         // Socket.io v4 uses Engine.IO v4 — start with polling handshake, then upgrade to WS
         // For simplicity, connect directly to websocket transport
@@ -72,8 +80,14 @@ final class WebSocketClient {
             return
         }
 
-        let session = URLSession(configuration: .default)
+        print("WebSocket: Connecting to \(urlString.prefix(80))...")
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300  // 5 min — AI responses can take a while
+        config.timeoutIntervalForResource = 600
+        let session = URLSession(configuration: config)
         webSocket = session.webSocketTask(with: url)
+        // Increase maximumMessageSize for large audio payloads
+        webSocket?.maximumMessageSize = 10 * 1024 * 1024  // 10 MB
         webSocket?.resume()
 
         // Start receiving messages
@@ -159,6 +173,10 @@ final class WebSocketClient {
 
     /// Emit a Socket.IO event: "42[\"eventName\",{data}]"
     private func emitEvent(_ event: String, data: [String: Any]) {
+        guard connectionState == .connected else {
+            print("WebSocket: Cannot emit \(event) — not connected (state: \(connectionState))")
+            return
+        }
         let payload: [Any] = [event, data]
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload),
               let jsonString = String(data: jsonData, encoding: .utf8) else {
@@ -166,6 +184,8 @@ final class WebSocketClient {
             return
         }
         // Prepend "42" for Socket.IO event type
+        let dataSize = event == "conversation:voice" ? "(audio \(data["audioData"].map { "\(($0 as? String)?.count ?? 0) chars" } ?? "?"))" : ""
+        print("WebSocket: Emitting \(event) \(dataSize)")
         sendRaw("42\(jsonString)")
     }
 
@@ -186,6 +206,7 @@ final class WebSocketClient {
 
             switch result {
             case .success(let message):
+                self.reconnectAttempts = 0  // Reset on successful receive
                 switch message {
                 case .string(let text):
                     self.handleRawMessage(text)
@@ -200,10 +221,35 @@ final class WebSocketClient {
                 self.receiveMessages()
 
             case .failure(let error):
+                print("WebSocket: Receive error: \(error.localizedDescription)")
                 Task { @MainActor in
                     self.connectionState = .error(error.localizedDescription)
+                    self.attemptReconnect()
                 }
             }
+        }
+    }
+
+    private func attemptReconnect() {
+        guard reconnectAttempts < maxReconnectAttempts else {
+            print("WebSocket: Max reconnect attempts reached (\(maxReconnectAttempts))")
+            isReconnecting = false
+            return
+        }
+        reconnectAttempts += 1
+        isReconnecting = true  // Flag stays true until onReconnected fires
+        let delay = reconnectAttempts == 1 ? 0.3 : Double(reconnectAttempts) * 1.0  // 0.3s, 2s, 3s...
+        print("WebSocket: Reconnecting in \(delay)s (attempt \(reconnectAttempts)/\(maxReconnectAttempts))")
+
+        // Clean up old socket
+        stopPingTimer()
+        webSocket?.cancel(with: .goingAway, reason: nil)
+        webSocket = nil
+        sid = nil
+        connectionState = .disconnected
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.connect(token: self?.authToken)
         }
     }
 
@@ -262,6 +308,12 @@ final class WebSocketClient {
             // Socket.IO connect acknowledgment
             Task { @MainActor in
                 self.connectionState = .connected
+                if self.isReconnecting {
+                    print("WebSocket: Reconnected to Socket.IO — re-joining conversation")
+                    self.isReconnecting = false
+                    self.reconnectAttempts = 0
+                    self.onReconnected?()
+                }
             }
             print("WebSocket: Connected to Socket.IO")
 

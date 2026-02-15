@@ -1,25 +1,33 @@
 import SwiftUI
 import PhotosUI
 
-/// Two-step child creation flow:
-/// Step 1 — Name + Avatar photo
-/// Step 2 — Age, gender, interests, goals
+/// Four-step child creation flow:
+/// Step 1 — Upload photo (starts avatar generation in background)
+/// Step 2 — Child's name
+/// Step 3 — Age, gender, interests, goals
+/// Step 4 — Summary with avatar reveal
 struct NewChildFlowView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppRouter.self) private var appRouter
 
     var onChildCreated: (() -> Void)?
 
-    @State private var step = 1
+    @State private var currentStep = 1
 
     // Step 1 state
-    @State private var childName = ""
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var selectedPhotoData: Data?
+
+    // Background avatar generation
+    @State private var avatarTask: Task<UIImage?, Never>?
     @State private var generatedAvatarImage: UIImage?
-    @State private var isAnalyzingPhoto = false
-    @State private var analysisError: String?
+    @State private var isGeneratingAvatar = false
+    @State private var avatarError: String?
 
     // Step 2 state
+    @State private var childName = ""
+
+    // Step 3 state
     @State private var age = 4
     @State private var gender = "boy"
     @State private var selectedInterests: [String] = []
@@ -63,7 +71,6 @@ struct NewChildFlowView: View {
     private func localizedInterest(_ key: String) -> String {
         guard L == .hebrew else { return key }
         switch key {
-        // Sports
         case "Soccer": return "כדורגל"
         case "Basketball": return "כדורסל"
         case "Tennis": return "טניס"
@@ -73,7 +80,6 @@ struct NewChildFlowView: View {
         case "Cycling": return "רכיבת אופניים"
         case "Running": return "ריצה"
         case "Skateboarding": return "סקייטבורד"
-        // Creative
         case "Drawing": return "ציור"
         case "Music": return "מוזיקה"
         case "Dancing": return "ריקוד"
@@ -81,20 +87,17 @@ struct NewChildFlowView: View {
         case "Photography": return "צילום"
         case "Crafts": return "יצירה"
         case "Theater": return "תיאטרון"
-        // Science & Tech
         case "Space": return "חלל"
         case "Science": return "מדע"
         case "Robots": return "רובוטים"
         case "Video Games": return "משחקי מחשב"
         case "Coding": return "תכנות"
         case "Math Puzzles": return "חידות מתמטיקה"
-        // Nature & Animals
         case "Animals": return "חיות"
         case "Dinosaurs": return "דינוזאורים"
         case "Nature": return "טבע"
         case "Gardening": return "גינון"
         case "Ocean Life": return "חיי הים"
-        // Imagination & Play
         case "Superheroes": return "גיבורי על"
         case "Princesses": return "נסיכות"
         case "Cars": return "מכוניות"
@@ -104,7 +107,6 @@ struct NewChildFlowView: View {
         case "Reading": return "קריאה"
         case "Fairy Tales": return "אגדות"
         case "Pirates": return "פיראטים"
-        // Social
         case "Board Games": return "משחקי קופסה"
         case "Puzzles": return "פאזלים"
         case "Magic Tricks": return "קסמים"
@@ -132,18 +134,48 @@ struct NewChildFlowView: View {
         }
     }
 
+    // MARK: - Body
+
     var body: some View {
         NavigationStack {
             ZStack {
                 AppTheme.Colors.childGradient
                     .ignoresSafeArea()
 
-                if step == 1 {
-                    step1View
-                        .transition(.move(edge: .leading))
-                } else {
-                    step2View
-                        .transition(.move(edge: .trailing))
+                VStack(spacing: 0) {
+                    // Step indicator + background avatar progress
+                    stepIndicator
+                        .padding(.top, AppTheme.Spacing.md)
+
+                    // Step content
+                    ZStack {
+                        if currentStep == 1 {
+                            step1PhotoView
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: L == .hebrew ? .leading : .trailing),
+                                    removal: .move(edge: L == .hebrew ? .trailing : .leading)
+                                ))
+                        } else if currentStep == 2 {
+                            step2NameView
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: L == .hebrew ? .leading : .trailing),
+                                    removal: .move(edge: L == .hebrew ? .trailing : .leading)
+                                ))
+                        } else if currentStep == 3 {
+                            step3InterestsView
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: L == .hebrew ? .leading : .trailing),
+                                    removal: .move(edge: L == .hebrew ? .trailing : .leading)
+                                ))
+                        } else {
+                            step4SummaryView
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: L == .hebrew ? .leading : .trailing),
+                                    removal: .move(edge: L == .hebrew ? .trailing : .leading)
+                                ))
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.35), value: currentStep)
                 }
             }
             .environment(\.layoutDirection, L.layoutDirection)
@@ -151,156 +183,14 @@ struct NewChildFlowView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(L.cancel) { dismiss() }
-                        .foregroundStyle(.white)
-                }
-            }
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .allowsHitTesting(!isSaving && !isAnalyzingPhoto)
-        }
-    }
-
-    // MARK: - Step 1: Name + Avatar
-
-    private var step1View: some View {
-        VStack(spacing: 0) {
-            // Avatar circle — tapping opens photo picker
-            PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                ZStack {
-                    if let image = generatedAvatarImage {
-                        Image(uiImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 200, height: 200)
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 3))
-                            .shadow(color: .black.opacity(0.2), radius: 10)
-
-                        // Change badge
-                        VStack {
-                            Spacer()
-                            HStack {
-                                Spacer()
-                                Image(systemName: "arrow.triangle.2.circlepath.camera")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(8)
-                                    .background(Circle().fill(.black.opacity(0.45)))
-                            }
-                        }
-                        .frame(width: 200, height: 200)
-                    } else {
-                        Circle()
-                            .fill(.white.opacity(0.15))
-                            .frame(width: 200, height: 200)
-                            .overlay(
-                                VStack(spacing: 8) {
-                                    Image(systemName: "camera.fill")
-                                        .font(.system(size: 36))
-                                    Text(L.tapToUploadPhoto)
-                                        .font(AppTheme.Fonts.caption)
-                                        .multilineTextAlignment(.center)
-                                }
-                                .foregroundStyle(.white.opacity(0.6))
-                            )
-                    }
-
-                    if isAnalyzingPhoto {
-                        Circle()
-                            .fill(.black.opacity(0.5))
-                            .frame(width: 200, height: 200)
-                        VStack(spacing: 8) {
-                            ProgressView()
-                                .tint(.white)
-                                .scaleEffect(1.5)
-                            Text(L.creatingAvatar)
-                                .font(AppTheme.Fonts.caption)
-                                .foregroundStyle(.white)
-                        }
-                    }
-                }
-            }
-            .disabled(isAnalyzingPhoto)
-            .padding(.top, AppTheme.Spacing.xl)
-            .onChange(of: selectedPhoto) { _, newItem in
-                guard let newItem else { return }
-                Task {
-                    if let data = try? await newItem.loadTransferable(type: Data.self) {
-                        isAnalyzingPhoto = true
-                        analysisError = nil
-                        do {
-                            let image = try await openAI.createCartoonFromPhoto(imageData: data)
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                generatedAvatarImage = image
-                            }
-                        } catch {
-                            analysisError = error.localizedDescription
-                        }
-                        isAnalyzingPhoto = false
-                    }
-                }
-            }
-
-            if let error = analysisError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, AppTheme.Spacing.lg)
-                    .padding(.top, 4)
-            }
-
-            // Name field
-            VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
-                Text(L.childNameLabel)
-                    .font(AppTheme.Fonts.bodyBold)
-                    .foregroundStyle(.white)
-
-                TextField(L.enterChildName, text: $childName)
-                    .textFieldStyle(.plain)
-                    .padding()
-                    .background(.white.opacity(0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.md))
-                    .foregroundStyle(.white)
-            }
-            .padding(.horizontal, AppTheme.Spacing.lg)
-            .padding(.top, AppTheme.Spacing.lg)
-
-            Spacer()
-
-            // Next button
-            Button {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    step = 2
-                }
-            } label: {
-                Text(L.next)
-                    .font(AppTheme.Fonts.childBody)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(canProceed ? .white : .white.opacity(0.3))
-                    .foregroundStyle(canProceed ? AppTheme.Colors.primary : .white.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.lg))
-            }
-            .disabled(!canProceed)
-            .padding(.horizontal, AppTheme.Spacing.lg)
-            .padding(.bottom, AppTheme.Spacing.xl)
-        }
-    }
-
-    private var canProceed: Bool {
-        !childName.isEmpty && generatedAvatarImage != nil
-    }
-
-    // MARK: - Step 2: Age, Interests, Goals
-
-    private var step2View: some View {
-        ScrollView {
-            VStack(spacing: AppTheme.Spacing.lg) {
-                // Back to step 1
-                HStack {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            step = 1
+                        if currentStep > 1 {
+                            withAnimation(.easeInOut(duration: 0.35)) {
+                                currentStep -= 1
+                            }
+                        } else {
+                            avatarTask?.cancel()
+                            dismiss()
                         }
                     } label: {
                         HStack(spacing: 4) {
@@ -310,9 +200,189 @@ struct NewChildFlowView: View {
                         .font(.system(size: 15, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.7))
                     }
-                    Spacer()
                 }
-                .padding(.top, AppTheme.Spacing.sm)
+            }
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .allowsHitTesting(!isSaving)
+        }
+    }
+
+    // MARK: - Step Indicator
+
+    private var stepIndicator: some View {
+        VStack(spacing: 8) {
+            // Dots
+            HStack(spacing: 8) {
+                ForEach(1...4, id: \.self) { step in
+                    Circle()
+                        .fill(step <= currentStep ? .white : .white.opacity(0.3))
+                        .frame(width: step == currentStep ? 10 : 8,
+                               height: step == currentStep ? 10 : 8)
+                        .animation(.easeInOut(duration: 0.2), value: currentStep)
+                }
+            }
+
+            // Background avatar generation indicator
+            if isGeneratingAvatar {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .tint(.white.opacity(0.6))
+                        .scaleEffect(0.7)
+                    Text(L.creatingAvatar)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: isGeneratingAvatar)
+    }
+
+    // MARK: - Step 1: Upload Photo
+
+    private var step1PhotoView: some View {
+        VStack(spacing: AppTheme.Spacing.lg) {
+            Spacer()
+
+            // Title
+            VStack(spacing: AppTheme.Spacing.sm) {
+                Text(L.uploadChildPhoto)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text(L.uploadChildPhotoSubtitle)
+                    .font(AppTheme.Fonts.body)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+                .frame(height: 20)
+
+            // Photo picker circle
+            PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                ZStack {
+                    Circle()
+                        .fill(.white.opacity(0.15))
+                        .frame(width: 200, height: 200)
+                        .overlay(
+                            VStack(spacing: 12) {
+                                Image(systemName: "camera.fill")
+                                    .font(.system(size: 44))
+                                Text(L.tapToUploadPhoto)
+                                    .font(AppTheme.Fonts.caption)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .foregroundStyle(.white.opacity(0.6))
+                        )
+
+                    Circle()
+                        .stroke(.white.opacity(0.2), lineWidth: 2)
+                        .frame(width: 200, height: 200)
+                }
+            }
+            .onChange(of: selectedPhoto) { _, newItem in
+                guard let newItem else { return }
+                Task {
+                    if let data = try? await newItem.loadTransferable(type: Data.self) {
+                        selectedPhotoData = data
+                        startAvatarGeneration(imageData: data)
+                        // Auto-advance to step 2
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            currentStep = 2
+                        }
+                    }
+                }
+            }
+
+            if let error = avatarError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, AppTheme.Spacing.lg)
+            }
+
+            Spacer()
+            Spacer()
+        }
+        .padding(.horizontal, AppTheme.Spacing.lg)
+    }
+
+    // MARK: - Step 2: Name
+
+    private var step2NameView: some View {
+        VStack(spacing: AppTheme.Spacing.lg) {
+            Spacer()
+
+            // Title
+            VStack(spacing: AppTheme.Spacing.sm) {
+                Text(L.whatsTheirName)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text(L.whatsTheirNameSubtitle)
+                    .font(AppTheme.Fonts.body)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+                .frame(height: 30)
+
+            // Name field — big and centered
+            TextField(L.enterChildName, text: $childName)
+                .textFieldStyle(.plain)
+                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                .multilineTextAlignment(.center)
+                .padding()
+                .padding(.horizontal, AppTheme.Spacing.md)
+                .background(.white.opacity(0.2))
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.lg))
+                .foregroundStyle(.white)
+                .padding(.horizontal, AppTheme.Spacing.lg)
+
+            Spacer()
+
+            // Next button
+            Button {
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    currentStep = 3
+                }
+            } label: {
+                Text(L.next)
+                    .font(AppTheme.Fonts.childBody)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(!childName.isEmpty ? .white : .white.opacity(0.3))
+                    .foregroundStyle(!childName.isEmpty ? AppTheme.Colors.primary : .white.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.lg))
+            }
+            .disabled(childName.isEmpty)
+            .padding(.horizontal, AppTheme.Spacing.lg)
+            .padding(.bottom, AppTheme.Spacing.xl)
+        }
+    }
+
+    // MARK: - Step 3: Age, Gender, Interests, Goals
+
+    private var step3InterestsView: some View {
+        ScrollView {
+            VStack(spacing: AppTheme.Spacing.lg) {
+                // Title
+                VStack(spacing: AppTheme.Spacing.sm) {
+                    Text(L.whatDoTheyLove)
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+
+                    Text(L.whatDoTheyLoveSubtitle)
+                        .font(AppTheme.Fonts.body)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.top, AppTheme.Spacing.md)
 
                 // Age
                 VStack(spacing: AppTheme.Spacing.sm) {
@@ -401,28 +471,165 @@ struct NewChildFlowView: View {
                     }
                 }
 
-                // Save button
+                // Next button
                 Button {
-                    Task { await saveChild() }
-                } label: {
-                    HStack(spacing: 10) {
-                        if isSaving {
-                            ProgressView()
-                                .tint(AppTheme.Colors.primary)
-                        }
-                        Text(isSaving ? L.saving : L.createChild)
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        currentStep = 4
                     }
-                    .font(AppTheme.Fonts.childBody)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(.white)
-                    .foregroundStyle(AppTheme.Colors.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.lg))
+                } label: {
+                    Text(L.next)
+                        .font(AppTheme.Fonts.childBody)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(.white)
+                        .foregroundStyle(AppTheme.Colors.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.lg))
                 }
-                .disabled(isSaving)
                 .padding(.bottom, AppTheme.Spacing.xl)
             }
             .padding(.horizontal, AppTheme.Spacing.lg)
+        }
+    }
+
+    // MARK: - Step 4: Summary
+
+    private var step4SummaryView: some View {
+        VStack(spacing: AppTheme.Spacing.lg) {
+            Spacer()
+
+            if let image = generatedAvatarImage {
+                // Avatar reveal
+                VStack(spacing: AppTheme.Spacing.md) {
+                    Text(L.meetAvatar)
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 220, height: 220)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 3))
+                        .shadow(color: .black.opacity(0.3), radius: 15, y: 5)
+                        .transition(.scale.combined(with: .opacity))
+
+                    if !childName.isEmpty {
+                        Text(childName)
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                    }
+
+                    // Selected interests as tags
+                    if !selectedInterests.isEmpty {
+                        FlowLayout(spacing: 6) {
+                            ForEach(selectedInterests.prefix(8), id: \.self) { interest in
+                                Text(localizedInterest(interest))
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(.white.opacity(0.2))
+                                    .foregroundStyle(.white)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        .padding(.horizontal, AppTheme.Spacing.lg)
+                    }
+                }
+                .animation(.spring(response: 0.5, dampingFraction: 0.7), value: generatedAvatarImage != nil)
+            } else {
+                // Still generating — show spinner
+                VStack(spacing: AppTheme.Spacing.md) {
+                    ProgressView()
+                        .tint(.white)
+                        .scaleEffect(2.0)
+
+                    Text(L.almostReady)
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+
+                    Text(L.creatingAvatar)
+                        .font(AppTheme.Fonts.body)
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
+
+            if let error = avatarError {
+                VStack(spacing: 8) {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+
+                    // Retry button
+                    Button {
+                        if let data = selectedPhotoData {
+                            avatarError = nil
+                            startAvatarGeneration(imageData: data)
+                        }
+                    } label: {
+                        Text("Retry")
+                            .font(AppTheme.Fonts.bodyBold)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 8)
+                            .background(.white.opacity(0.2))
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+
+            Spacer()
+
+            // Let's go! button (only when avatar is ready)
+            Button {
+                Task { await saveChild() }
+            } label: {
+                HStack(spacing: 10) {
+                    if isSaving {
+                        ProgressView()
+                            .tint(AppTheme.Colors.primary)
+                    }
+                    Text(isSaving ? L.saving : L.letsGoButton)
+                }
+                .font(AppTheme.Fonts.childBody)
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(generatedAvatarImage != nil ? .white : .white.opacity(0.3))
+                .foregroundStyle(generatedAvatarImage != nil ? AppTheme.Colors.primary : .white.opacity(0.5))
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.lg))
+            }
+            .disabled(generatedAvatarImage == nil || isSaving)
+            .padding(.horizontal, AppTheme.Spacing.lg)
+            .padding(.bottom, AppTheme.Spacing.xl)
+        }
+    }
+
+    // MARK: - Avatar Generation (Background)
+
+    private func startAvatarGeneration(imageData: Data) {
+        avatarTask?.cancel()
+        isGeneratingAvatar = true
+        avatarError = nil
+
+        avatarTask = Task {
+            do {
+                let image = try await openAI.createCartoonFromPhoto(imageData: imageData)
+                if !Task.isCancelled {
+                    await MainActor.run {
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                            generatedAvatarImage = image
+                        }
+                        isGeneratingAvatar = false
+                    }
+                }
+            } catch {
+                if !Task.isCancelled {
+                    await MainActor.run {
+                        avatarError = error.localizedDescription
+                        isGeneratingAvatar = false
+                    }
+                }
+            }
+            return nil
         }
     }
 
@@ -447,11 +654,14 @@ struct NewChildFlowView: View {
                 try await storage.saveAvatar(name: childName, image: image, childId: child.id)
             }
 
-            // 3. Done — notify parent and dismiss
+            // 3. Refresh children list BEFORE dismissing so RoleSelectionView updates instantly
+            await appRouter.prefetchChildren(force: true)
+
+            // 4. Done — notify parent and dismiss
             onChildCreated?()
             dismiss()
         } catch {
-            analysisError = error.localizedDescription
+            avatarError = error.localizedDescription
             isSaving = false
         }
     }

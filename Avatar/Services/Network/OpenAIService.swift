@@ -244,28 +244,31 @@ struct OpenAIService {
         return result
     }
 
-    // MARK: - Full flow: photo → analyze → generate cartoon
+    // MARK: - Full flow: photo → analyze → generate cartoon avatar
 
     func createCartoonFromPhoto(imageData: Data) async throws -> UIImage {
-        let desc = try await analyzeForCartoon(imageData: imageData)
+        // Step 1: Analyze the photo with GPT-4o-mini (fallback GPT-4o)
+        let traits = try await analyzeForCartoon(imageData: imageData)
 
-        let age = desc["approximateage"] ?? "7"
-        let gender = desc["gender"] ?? "child"
-        let hairColor = desc["haircolor"] ?? "brown"
-        let hairStyle = desc["hairstyle"] ?? "short"
-        let eyeColor = desc["eyecolor"] ?? "brown"
-        let skinTone = desc["skintone"] ?? "fair"
-        let facialFeatures = desc["facialfeatures"] ?? "round face"
+        let hairColor = traits["haircolor"] ?? "brown"
+        let hairStyle = traits["hairstyle"] ?? "short"
+        let eyeColor = traits["eyecolor"] ?? "brown"
+        let skinTone = traits["skintone"] ?? "fair"
+        let age = traits["approximateage"] ?? "6"
+        let gender = traits["gender"] ?? "child"
+        let facialFeatures = traits["facialfeatures"] ?? "round face"
 
+        // Step 2: Build a detailed prompt from the analysis
         let prompt = """
-        A cute Pixar/Disney-style 3D cartoon avatar portrait of a \(age)-year-old \
-        \(gender) with \(hairColor) \(hairStyle) hair, \(eyeColor) eyes, \
-        \(skinTone) skin, and a \(facialFeatures). \
+        A cute Pixar/Disney-style 3D cartoon avatar portrait of a \(age)-year-old \(gender) \
+        with \(hairColor) \(hairStyle) hair, \(eyeColor) eyes, and \(skinTone) skin. \
+        Facial features: \(facialFeatures). \
         Warm friendly smile, shown from chest up, looking at the viewer. \
         Soft pastel solid color background. \
         High quality children's book illustration, vibrant colors, adorable character design.
         """
 
+        // Step 3: Generate with DALL-E 3
         return try await generateCartoonAvatar(prompt: prompt)
     }
 

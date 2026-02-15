@@ -81,7 +81,7 @@ struct ParentDashboardView: View {
             .sheet(isPresented: $viewModel.showAddChild, onDismiss: {
                 Task { await viewModel.loadData() }
             }) {
-                ChildProfileSetupView()
+                NewChildFlowView()
             }
             .task {
                 await viewModel.loadData()

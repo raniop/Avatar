@@ -60,9 +60,16 @@ final class ChildHomeViewModel {
         do {
             // Read persisted locale to fetch localized mission titles
             let localeRaw = UserDefaults.standard.string(forKey: "app_locale") ?? "en"
-            availableMissions = try await apiClient.getMissions(locale: localeRaw)
+            let interests = child?.interests.isEmpty == false ? child?.interests : nil
+            print("📋 Loading missions: age=\(child?.age ?? -1), locale=\(localeRaw), interests=\(interests ?? [])")
+            availableMissions = try await apiClient.getMissions(
+                age: child?.age,
+                locale: localeRaw,
+                interests: interests
+            )
+            print("📋 Loaded \(availableMissions.count) missions")
         } catch {
-            print("Failed to load missions: \(error.localizedDescription)")
+            print("❌ Failed to load missions: \(error)")
         }
     }
 }

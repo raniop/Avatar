@@ -29,10 +29,15 @@ struct Mission: Codable, Identifiable, Hashable {
         case "dinosaur_world": "🦕"
         case "superhero_training": "🦸"
         case "cooking_adventure": "👨‍🍳"
-        case "pirate_treasure_hunt": "🏴‍☠️"
-        case "fairy_tale_kingdom": "🏰"
+        case "pirate_treasure", "pirate_treasure_hunt": "🏴‍☠️"
+        case "fairy_tale", "fairy_tale_kingdom": "🏰"
         case "animal_rescue": "🐾"
         case "rainbow_land": "🌈"
+        case "music_studio": "🎵"
+        case "dance_party": "💃"
+        case "sports_champion": "🏆"
+        case "singing_star": "🎤"
+        case "animal_hospital": "🏥"
         default: "⭐"
         }
     }
