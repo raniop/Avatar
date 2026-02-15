@@ -100,6 +100,7 @@ model MissionTemplate {
   durationMinutes  Int      @default(5) @map("duration_minutes")
   sceneryAssetKey  String?  @map("scenery_asset_key")
   avatarCostumeKey String?  @map("avatar_costume_key")
+  interests        String[] @default([])
   isActive         Boolean  @default(true) @map("is_active")
   sortOrder        Int      @default(0) @map("sort_order")
   createdAt        DateTime @default(now()) @map("created_at")

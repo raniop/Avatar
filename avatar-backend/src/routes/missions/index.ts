@@ -8,6 +8,7 @@ const listMissionsQuery = z.object({
     .optional()
     .transform((val) => (val ? parseInt(val, 10) : undefined)),
   theme: z.string().optional(),
+  interests: z.string().optional(),
   locale: z.enum(['en', 'he']).default('en'),
 });
 
@@ -20,7 +21,7 @@ export async function missionRoutes(fastify: FastifyInstance) {
     '/',
     async (
       request: FastifyRequest<{
-        Querystring: { age?: string; theme?: string; locale?: string };
+        Querystring: { age?: string; theme?: string; interests?: string; locale?: string };
       }>,
       reply: FastifyReply,
     ) => {
@@ -33,7 +34,10 @@ export async function missionRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const { age, theme, locale } = parsed.data;
+      const { age, theme, interests, locale } = parsed.data;
+      const interestList = interests
+        ? interests.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
 
       const missions = await prisma.missionTemplate.findMany({
         where: {
@@ -56,13 +60,29 @@ export async function missionRoutes(fastify: FastifyInstance) {
           durationMinutes: true,
           sceneryAssetKey: true,
           avatarCostumeKey: true,
+          interests: true,
           sortOrder: true,
         },
         orderBy: { sortOrder: 'asc' },
       });
 
+      // Sort: missions matching child's interests first, then the rest
+      const sorted = interestList.length > 0
+        ? [...missions].sort((a, b) => {
+            const aMatch = a.interests.some((i) =>
+              interestList.some((ci) => ci.toLowerCase() === i.toLowerCase()),
+            );
+            const bMatch = b.interests.some((i) =>
+              interestList.some((ci) => ci.toLowerCase() === i.toLowerCase()),
+            );
+            if (aMatch && !bMatch) return -1;
+            if (!aMatch && bMatch) return 1;
+            return a.sortOrder - b.sortOrder;
+          })
+        : missions;
+
       // Localize response
-      const localizedMissions = missions.map((m) => ({
+      const localizedMissions = sorted.map((m) => ({
         id: m.id,
         theme: m.theme,
         title: locale === 'he' ? m.titleHe : m.titleEn,

@@ -15,10 +15,11 @@ Ask the child what planet they want to visit first and what they think they'll f
 Use space themes to naturally explore feelings: "When astronauts are far from home, they sometimes miss their family. Do you ever feel that way?"
 Encourage imagination and wonder while gently exploring the child's emotional world.`,
     ageRangeMin: 3,
-    ageRangeMax: 7,
+    ageRangeMax: 12,
     durationMinutes: 5,
     sceneryAssetKey: 'space_bg',
     avatarCostumeKey: 'astronaut',
+    interests: ['Space', 'Science', 'Robots'],
     sortOrder: 1,
   },
   {
@@ -33,10 +34,11 @@ Ask the child what sea creature they'd like to be friends with and why.
 Use ocean themes to explore emotions: "Some fish swim in big groups because they feel safer together. Do you have friends who make you feel safe?"
 Create a calm, magical atmosphere while exploring the child's social world.`,
     ageRangeMin: 3,
-    ageRangeMax: 7,
+    ageRangeMax: 12,
     durationMinutes: 5,
     sceneryAssetKey: 'ocean_bg',
     avatarCostumeKey: 'diver',
+    interests: ['Ocean Life', 'Swimming', 'Nature', 'Animals'],
     sortOrder: 2,
   },
   {
@@ -51,10 +53,11 @@ Ask the child to help you find a lost baby animal and return it to its family.
 Use the journey to explore feelings: "The baby bunny misses its mommy. Have you ever missed someone? What did you do?"
 Build empathy and emotional vocabulary through the adventure.`,
     ageRangeMin: 3,
-    ageRangeMax: 7,
+    ageRangeMax: 12,
     durationMinutes: 5,
     sceneryAssetKey: 'forest_bg',
     avatarCostumeKey: 'explorer',
+    interests: ['Nature', 'Animals', 'Gardening'],
     sortOrder: 3,
   },
   {
@@ -69,10 +72,11 @@ Ask the child which dinosaur they'd like to ride and where they'd go.
 Use dinosaur themes to explore bravery: "Even the biggest T-Rex was scared sometimes. What makes you feel brave? What scares you a little?"
 Normalize fears while celebrating courage.`,
     ageRangeMin: 3,
-    ageRangeMax: 7,
+    ageRangeMax: 12,
     durationMinutes: 5,
     sceneryAssetKey: 'dino_bg',
     avatarCostumeKey: 'explorer',
+    interests: ['Dinosaurs', 'Science', 'Nature', 'Animals'],
     sortOrder: 4,
   },
   {
@@ -87,10 +91,11 @@ Create fun "training exercises" like flying practice and shield making.
 Use superhero themes to explore strengths: "Every superhero has something they're really good at AND something they're still learning. What are you really good at?"
 Build self-esteem while exploring challenges.`,
     ageRangeMin: 4,
-    ageRangeMax: 7,
+    ageRangeMax: 12,
     durationMinutes: 5,
     sceneryAssetKey: 'hero_bg',
     avatarCostumeKey: 'superhero',
+    interests: ['Superheroes', 'Martial Arts', 'Running', 'Gymnastics'],
     sortOrder: 5,
   },
   {
@@ -105,10 +110,11 @@ Ask the child what magical dish they want to create and what ingredients they'd 
 Use cooking themes to explore family: "Who in your family loves to eat? What does your family eat together? Do you help in the kitchen at home?"
 Create a warm, nurturing atmosphere while exploring family dynamics.`,
     ageRangeMin: 3,
-    ageRangeMax: 7,
+    ageRangeMax: 12,
     durationMinutes: 5,
     sceneryAssetKey: 'kitchen_bg',
     avatarCostumeKey: 'chef',
+    interests: ['Cooking', 'Crafts'],
     sortOrder: 6,
   },
   {
@@ -123,10 +129,11 @@ Ask the child what treasure they hope to find and who they'd share it with.
 Use pirate themes to explore sharing and friendship: "Pirates need a good crew they can trust. Who do you trust the most? Who are your best friends?"
 Explore social relationships and sharing in a fun adventure context.`,
     ageRangeMin: 4,
-    ageRangeMax: 7,
+    ageRangeMax: 12,
     durationMinutes: 5,
     sceneryAssetKey: 'pirate_bg',
     avatarCostumeKey: 'pirate',
+    interests: ['Pirates', 'Ocean Life', 'Swimming'],
     sortOrder: 7,
   },
   {
@@ -141,10 +148,11 @@ Let the child choose if they want to be a prince/princess, a knight, or a wizard
 Use fairy tale themes to explore wishes and dreams: "If you had three wishes, what would you wish for? What makes you happiest in the whole world?"
 Explore dreams, desires, and happiness through storytelling.`,
     ageRangeMin: 3,
-    ageRangeMax: 6,
+    ageRangeMax: 12,
     durationMinutes: 5,
     sceneryAssetKey: 'castle_bg',
     avatarCostumeKey: 'royal',
+    interests: ['Fairy Tales', 'Princesses', 'Reading', 'Theater'],
     sortOrder: 8,
   },
   {
@@ -159,10 +167,11 @@ Ask the child how they would help each animal and what name they'd give them.
 Use caregiving themes to explore empathy: "The little puppy looks sad. How do you think it feels? Have you ever felt sad and someone helped you feel better?"
 Build empathy, compassion, and emotional recognition.`,
     ageRangeMin: 3,
-    ageRangeMax: 7,
+    ageRangeMax: 12,
     durationMinutes: 5,
     sceneryAssetKey: 'rescue_bg',
     avatarCostumeKey: 'vet',
+    interests: ['Animals', 'Nature', 'Gardening'],
     sortOrder: 9,
   },
   {
@@ -177,10 +186,11 @@ Ask the child what color they feel like today and why.
 Use colors to explore emotions: "If your day was a color, what color would it be? What happened that made you feel that way?"
 This is a gentle, creative way to help children express their emotional state.`,
     ageRangeMin: 3,
-    ageRangeMax: 5,
+    ageRangeMax: 12,
     durationMinutes: 5,
     sceneryAssetKey: 'rainbow_bg',
     avatarCostumeKey: 'painter',
+    interests: ['Drawing', 'Crafts', 'Music', 'Dancing'],
     sortOrder: 10,
   },
 ];
