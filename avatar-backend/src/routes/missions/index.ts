@@ -66,17 +66,16 @@ export async function missionRoutes(fastify: FastifyInstance) {
         orderBy: { sortOrder: 'asc' },
       });
 
-      // Sort: missions matching child's interests first, then the rest
+      // Sort: missions with more matching interests first, then by sortOrder
       const sorted = interestList.length > 0
         ? [...missions].sort((a, b) => {
-            const aMatch = a.interests.some((i) =>
+            const aCount = a.interests.filter((i) =>
               interestList.some((ci) => ci.toLowerCase() === i.toLowerCase()),
-            );
-            const bMatch = b.interests.some((i) =>
+            ).length;
+            const bCount = b.interests.filter((i) =>
               interestList.some((ci) => ci.toLowerCase() === i.toLowerCase()),
-            );
-            if (aMatch && !bMatch) return -1;
-            if (!aMatch && bMatch) return 1;
+            ).length;
+            if (bCount !== aCount) return bCount - aCount; // more matches first
             return a.sortOrder - b.sortOrder;
           })
         : missions;
