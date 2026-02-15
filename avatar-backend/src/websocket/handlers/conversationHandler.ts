@@ -98,16 +98,23 @@ export function registerConversationHandler(
           return;
         }
 
+        // Capture conversation room name upfront — if the socket disconnects during
+        // processing, we can still emit the response to the room (the client will
+        // reconnect and re-join this room).
+        const conversationRoom = `conversation:${session.conversationId}`;
+        const conversationId = session.conversationId;
+        const locale = session.locale;
+
         sessionManager.updateActivity(socket.id);
 
-        // Emit processing status
-        socket.emit('conversation:processing', {
+        // Emit processing status to the room (so reconnected clients see it too)
+        io.to(conversationRoom).emit('conversation:processing', {
           status: 'transcribing',
         });
 
         // Load full conversation context
         const conversation = await prisma.conversation.findUnique({
-          where: { id: session.conversationId },
+          where: { id: conversationId },
           include: {
             child: {
               include: {
@@ -149,26 +156,26 @@ export function registerConversationHandler(
         console.log(`[Voice] Decoded audio buffer: ${audioBuffer.length} bytes, first4=${audioBuffer.subarray(0, 4).toString('ascii')}`);
 
         // Process through voice pipeline
-        socket.emit('conversation:processing', {
+        io.to(conversationRoom).emit('conversation:processing', {
           status: 'thinking',
         });
 
         const result = await voicePipeline.processVoiceMessage({
           audioBuffer,
-          conversationId: session.conversationId,
+          conversationId,
           systemPrompt: conversation.systemPrompt,
           messageHistory: conversation.messages,
           child: conversation.child,
           avatar: conversation.child.avatar,
           parentQuestions: conversation.child.parentQuestions,
-          locale: session.locale,
+          locale,
         });
 
         // Save messages to database
         const [childMsg, avatarMsg] = await Promise.all([
           prisma.message.create({
             data: {
-              conversationId: session.conversationId,
+              conversationId,
               role: 'CHILD',
               textContent: result.childTranscript,
               audioDuration: result.childAudioDuration,
@@ -176,7 +183,7 @@ export function registerConversationHandler(
           }),
           prisma.message.create({
             data: {
-              conversationId: session.conversationId,
+              conversationId,
               role: 'AVATAR',
               textContent: result.avatarText,
               audioUrl: result.avatarAudioUrl,
@@ -189,8 +196,11 @@ export function registerConversationHandler(
           }),
         ]);
 
-        // Emit response to the child's device
-        socket.emit('conversation:response', {
+        // Emit response to the conversation ROOM (not individual socket).
+        // This way if the original socket disconnected and a new one reconnected
+        // and re-joined the room, it will still receive the response.
+        console.log(`[Voice] Emitting response to room ${conversationRoom}`);
+        io.to(conversationRoom).emit('conversation:response', {
           childMessage: {
             id: childMsg.id,
             textContent: result.childTranscript,
@@ -207,9 +217,10 @@ export function registerConversationHandler(
         });
 
         // Broadcast to parent monitoring room
-        if (session.isParentMonitoring && session.parentSocketId) {
-          io.to(session.parentSocketId).emit('parent:message_update', {
-            conversationId: session.conversationId,
+        const currentSession = sessionManager.getBySocketId(socket.id) || session;
+        if (currentSession.isParentMonitoring && currentSession.parentSocketId) {
+          io.to(currentSession.parentSocketId).emit('parent:message_update', {
+            conversationId,
             childMessage: {
               id: childMsg.id,
               textContent: result.childTranscript,
@@ -226,10 +237,15 @@ export function registerConversationHandler(
         }
       } catch (error) {
         console.error('[Voice] Error processing voice message:', error);
-        socket.emit('conversation:error', {
-          message: 'Failed to process voice message',
-          detail: error instanceof Error ? error.message : 'Unknown error',
-        });
+        // Try to emit error to room in case socket disconnected
+        try {
+          socket.emit('conversation:error', {
+            message: 'Failed to process voice message',
+            detail: error instanceof Error ? error.message : 'Unknown error',
+          });
+        } catch {
+          // Socket may be dead, ignore
+        }
       }
     },
   );
@@ -247,6 +263,10 @@ export function registerConversationHandler(
           return;
         }
 
+        const conversationRoom = `conversation:${session.conversationId}`;
+        const conversationId = session.conversationId;
+        const locale = session.locale;
+
         sessionManager.updateActivity(socket.id);
 
         const { textContent } = data;
@@ -258,13 +278,13 @@ export function registerConversationHandler(
           return;
         }
 
-        socket.emit('conversation:processing', {
+        io.to(conversationRoom).emit('conversation:processing', {
           status: 'thinking',
         });
 
         // Load conversation context
         const conversation = await prisma.conversation.findUnique({
-          where: { id: session.conversationId },
+          where: { id: conversationId },
           include: {
             child: {
               include: {
@@ -292,7 +312,7 @@ export function registerConversationHandler(
         // Save child message
         const childMsg = await prisma.message.create({
           data: {
-            conversationId: session.conversationId,
+            conversationId,
             role: 'CHILD',
             textContent,
           },
@@ -301,20 +321,20 @@ export function registerConversationHandler(
         // Process through conversation engine
         const avatarResponse =
           await conversationEngine.processChildMessage({
-            conversationId: session.conversationId,
+            conversationId,
             childText: textContent,
             systemPrompt: conversation.systemPrompt,
             messageHistory: conversation.messages,
             child: conversation.child,
             avatar: conversation.child.avatar,
             parentQuestions: conversation.child.parentQuestions,
-            locale: session.locale,
+            locale,
           });
 
         // Save avatar response
         const avatarMsg = await prisma.message.create({
           data: {
-            conversationId: session.conversationId,
+            conversationId,
             role: 'AVATAR',
             textContent: avatarResponse.text,
             emotion: avatarResponse.emotion,
@@ -324,8 +344,8 @@ export function registerConversationHandler(
           },
         });
 
-        // Emit response
-        socket.emit('conversation:response', {
+        // Emit response to the conversation room
+        io.to(conversationRoom).emit('conversation:response', {
           childMessage: {
             id: childMsg.id,
             textContent: childMsg.textContent,
@@ -340,9 +360,10 @@ export function registerConversationHandler(
         });
 
         // Broadcast to parent monitoring
-        if (session.isParentMonitoring && session.parentSocketId) {
-          io.to(session.parentSocketId).emit('parent:message_update', {
-            conversationId: session.conversationId,
+        const currentSession = sessionManager.getBySocketId(socket.id) || session;
+        if (currentSession.isParentMonitoring && currentSession.parentSocketId) {
+          io.to(currentSession.parentSocketId).emit('parent:message_update', {
+            conversationId,
             childMessage: {
               id: childMsg.id,
               textContent: childMsg.textContent,
@@ -359,9 +380,13 @@ export function registerConversationHandler(
         }
       } catch (error) {
         console.error('Error processing text message:', error);
-        socket.emit('conversation:error', {
-          message: 'Failed to process message',
-        });
+        try {
+          socket.emit('conversation:error', {
+            message: 'Failed to process message',
+          });
+        } catch {
+          // Socket may be dead, ignore
+        }
       }
     },
   );
