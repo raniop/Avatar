@@ -199,7 +199,11 @@ export function registerConversationHandler(
         // Emit response to the conversation ROOM (not individual socket).
         // This way if the original socket disconnected and a new one reconnected
         // and re-joined the room, it will still receive the response.
-        console.log(`[Voice] Emitting response to room ${conversationRoom}`);
+        // Send audio as base64 string (not raw Buffer) for our native WebSocket client
+        const voiceAudioBase64 = result.avatarAudioBuffer
+          ? result.avatarAudioBuffer.toString('base64')
+          : null;
+        console.log(`[Voice] Emitting response to room ${conversationRoom}, hasAudio=${!!voiceAudioBase64}`);
         io.to(conversationRoom).emit('conversation:response', {
           childMessage: {
             id: childMsg.id,
@@ -210,7 +214,7 @@ export function registerConversationHandler(
             id: avatarMsg.id,
             textContent: result.avatarText,
             audioUrl: result.avatarAudioUrl,
-            audioData: result.avatarAudioBuffer, // Binary audio for immediate playback
+            audioData: voiceAudioBase64, // Base64 encoded audio for immediate playback
             emotion: result.avatarEmotion,
             timestamp: avatarMsg.timestamp,
           },
@@ -369,7 +373,11 @@ export function registerConversationHandler(
           });
         }
 
-        // Emit response to the conversation room (include audio data for immediate playback)
+        // Emit response to the conversation room (include audio data as base64 for immediate playback)
+        const audioDataBase64 = ttsResult?.audioBuffer
+          ? ttsResult.audioBuffer.toString('base64')
+          : null;
+        console.log(`[Text] Emitting response to room ${conversationRoom}, hasAudio=${!!audioDataBase64}, audioSize=${audioDataBase64?.length || 0}`);
         io.to(conversationRoom).emit('conversation:response', {
           childMessage: {
             id: childMsg.id,
@@ -380,7 +388,7 @@ export function registerConversationHandler(
             id: avatarMsg.id,
             textContent: avatarResponse.text,
             audioUrl: ttsResult?.audioUrl || null,
-            audioData: ttsResult?.audioBuffer || null,
+            audioData: audioDataBase64,
             emotion: avatarResponse.emotion,
             timestamp: avatarMsg.timestamp,
           },

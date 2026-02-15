@@ -619,8 +619,10 @@ export async function conversationRoutes(fastify: FastifyInstance) {
             orderBy: { timestamp: 'asc' },
             select: {
               id: true,
+              conversationId: true,
               role: true,
               textContent: true,
+              audioUrl: true,
               emotion: true,
               isParentIntervention: true,
               timestamp: true,
