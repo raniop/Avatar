@@ -103,6 +103,9 @@ async function start() {
     maxHttpBufferSize: 5 * 1024 * 1024, // 5 MB — voice messages can be large
   });
 
+  // Expose Socket.IO instance on fastify so HTTP routes can emit events
+  (fastify as any).io = io;
+
   const sessionManager = new SessionManager();
 
   // Register WebSocket handlers

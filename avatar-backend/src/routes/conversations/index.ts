@@ -50,18 +50,25 @@ export async function conversationRoutes(fastify: FastifyInstance) {
       }
 
       const { childId, missionId, locale } = parsed.data;
+      const t0 = Date.now();
 
-      // Verify child belongs to user
-      const child = await prisma.child.findFirst({
-        where: { id: childId, parentId: request.user.userId },
-        include: {
-          avatar: true,
-          parentQuestions: {
-            where: { isActive: true },
-            orderBy: { priority: 'desc' },
+      // Load child and mission in parallel to cut latency
+      const [child, mission] = await Promise.all([
+        prisma.child.findFirst({
+          where: { id: childId, parentId: request.user.userId },
+          include: {
+            avatar: true,
+            parentQuestions: {
+              where: { isActive: true },
+              orderBy: { priority: 'desc' },
+            },
           },
-        },
-      });
+        }),
+        missionId
+          ? prisma.missionTemplate.findUnique({ where: { id: missionId } })
+          : Promise.resolve(null),
+      ]);
+      console.log(`[TIMING] Child+Mission DB: ${Date.now() - t0}ms`);
 
       if (!child) {
         return reply.status(404).send({
@@ -71,22 +78,15 @@ export async function conversationRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Load mission if provided
-      let mission = null;
-      if (missionId) {
-        mission = await prisma.missionTemplate.findUnique({
-          where: { id: missionId },
+      if (missionId && !mission) {
+        return reply.status(404).send({
+          error: true,
+          statusCode: 404,
+          message: 'Mission not found',
         });
-        if (!mission) {
-          return reply.status(404).send({
-            error: true,
-            statusCode: 404,
-            message: 'Mission not found',
-          });
-        }
       }
 
-      // Build system prompt
+      // Build system prompt (sync, fast)
       const systemPrompt = conversationEngine.buildSystemPrompt({
         child,
         avatar: child.avatar,
@@ -95,7 +95,12 @@ export async function conversationRoutes(fastify: FastifyInstance) {
         locale,
       });
 
-      // Create conversation
+      // Generate opening message text (sync, fast — template-based, no AI)
+      const avatarName = child.avatar?.name || 'Buddy';
+      const openingMessage = generateFastOpeningMessage(child.name, avatarName, mission, locale);
+
+      // Create conversation + opening message in DB (sequential, message needs conversation.id)
+      const t1 = Date.now();
       const conversation = await prisma.conversation.create({
         data: {
           childId,
@@ -105,36 +110,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
           status: 'ACTIVE',
         },
       });
-
-      // Generate a fast template-based opening message (no AI call needed for greetings)
-      const avatarName = child.avatar?.name || 'Buddy';
-      const openingMessage = generateFastOpeningMessage(child.name, avatarName, mission, locale);
-
-      // Run TTS and DB save in parallel to minimize wait time
-      let openingAudioUrl: string | null = null;
-      let openingAudioDuration: number | null = null;
-      let openingAudioBuffer: Buffer | null = null;
-
-      const ttsPromise = (async () => {
-        try {
-          console.log(`[TTS] Generating opening audio for: "${openingMessage.text.substring(0, 60)}...", voiceId=${child.avatar?.voiceId || 'default'}, age=${child.age}`);
-          const ttsResult = await voicePipeline.generateAvatarAudio(
-            openingMessage.text,
-            child.avatar?.voiceId || undefined,
-            child.age,
-          );
-          openingAudioUrl = ttsResult.audioUrl;
-          openingAudioDuration = ttsResult.audioDuration;
-          openingAudioBuffer = ttsResult.audioBuffer;
-          console.log(`[TTS] Opening audio OK: url=${openingAudioUrl}, duration=${openingAudioDuration}s, bufferSize=${openingAudioBuffer.length}`);
-        } catch (ttsError: any) {
-          console.error('[TTS] Failed to generate opening TTS:', ttsError?.message || ttsError);
-          // Continue without audio -- text will still appear
-        }
-      })();
-
-      // Save the opening message (without audio URL initially)
-      const dbSavePromise = prisma.message.create({
+      const avatarMessage = await prisma.message.create({
         data: {
           conversationId: conversation.id,
           role: 'AVATAR',
@@ -142,19 +118,10 @@ export async function conversationRoutes(fastify: FastifyInstance) {
           emotion: openingMessage.emotion,
         },
       });
+      console.log(`[TIMING] Conversation+Message DB: ${Date.now() - t1}ms (total: ${Date.now() - t0}ms)`);
 
-      // Wait for both TTS and DB save to complete in parallel
-      const [, avatarMessage] = await Promise.all([ttsPromise, dbSavePromise]);
-
-      // Update the message with audio URL if TTS succeeded
-      if (openingAudioUrl) {
-        await prisma.message.update({
-          where: { id: avatarMessage.id },
-          data: { audioUrl: openingAudioUrl, audioDuration: openingAudioDuration },
-        });
-      }
-
-      return reply.status(201).send({
+      // Return immediately with text — TTS will be sent via WebSocket later
+      reply.status(201).send({
         conversation: {
           id: conversation.id,
           childId: conversation.childId,
@@ -168,11 +135,52 @@ export async function conversationRoutes(fastify: FastifyInstance) {
           role: avatarMessage.role,
           textContent: avatarMessage.textContent,
           emotion: avatarMessage.emotion,
-          audioUrl: openingAudioUrl,
-          audioData: openingAudioBuffer ? (openingAudioBuffer as Buffer).toString('base64') : null,
+          audioUrl: null,
+          audioData: null,
           timestamp: avatarMessage.timestamp,
         },
       });
+
+      // Fire-and-forget: generate TTS in background and emit via WebSocket
+      // The client will receive audio via the conversation:audio event after joining the room
+      const conversationRoom = `conversation:${conversation.id}`;
+      (async () => {
+        try {
+          console.log(`[TTS] Generating opening audio in background for: "${openingMessage.text.substring(0, 60)}..."`);
+          const ttsResult = await voicePipeline.generateAvatarAudio(
+            openingMessage.text,
+            child.avatar?.voiceId || undefined,
+            child.age,
+          );
+          console.log(`[TTS] Opening audio OK: url=${ttsResult.audioUrl}, duration=${ttsResult.audioDuration}s, bufferSize=${ttsResult.audioBuffer.length}`);
+
+          // Update DB with audio info
+          await prisma.message.update({
+            where: { id: avatarMessage.id },
+            data: { audioUrl: ttsResult.audioUrl, audioDuration: ttsResult.audioDuration },
+          });
+
+          // Emit audio to the conversation room via Socket.IO
+          const audioBase64 = ttsResult.audioBuffer.toString('base64');
+          console.log(`[TTS] Emitting opening AUDIO to room ${conversationRoom}, size=${audioBase64.length}`);
+          fastify.server;  // ensure server is available
+          // Access io from the fastify server's Socket.IO instance
+          const io = (fastify as any).io;
+          if (io) {
+            io.to(conversationRoom).emit('conversation:audio', {
+              messageId: avatarMessage.id,
+              audioData: audioBase64,
+              audioUrl: ttsResult.audioUrl,
+            });
+          } else {
+            console.warn('[TTS] Socket.IO not available on fastify, audio not emitted');
+          }
+        } catch (ttsError: any) {
+          console.error('[TTS] Failed to generate opening TTS:', ttsError?.message || ttsError);
+        }
+      })();
+
+      return;
     },
   );
 
