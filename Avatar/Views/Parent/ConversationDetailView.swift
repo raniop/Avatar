@@ -2,19 +2,21 @@ import SwiftUI
 
 struct ConversationDetailView: View {
     let conversation: Conversation
+    @Environment(AppRouter.self) private var appRouter
     @State private var summary: ConversationSummary?
     @State private var messages: [Message] = []
     @State private var isLoading = true
     @State private var selectedTab = 0
 
     private let apiClient = APIClient.shared
+    private var L: AppLocale { appRouter.currentLocale }
 
     var body: some View {
         VStack(spacing: 0) {
             // Tab picker
-            Picker("View", selection: $selectedTab) {
-                Text("Summary").tag(0)
-                Text("Transcript").tag(1)
+            Picker(L.viewLabel, selection: $selectedTab) {
+                Text(L.summaryLabel).tag(0)
+                Text(L.transcript).tag(1)
             }
             .pickerStyle(.segmented)
             .padding()
@@ -31,7 +33,8 @@ struct ConversationDetailView: View {
                 }
             }
         }
-        .navigationTitle("Conversation Details")
+        .environment(\.layoutDirection, L.layoutDirection)
+        .navigationTitle(L.conversationDetails)
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadData() }
     }
@@ -41,17 +44,17 @@ struct ConversationDetailView: View {
             if let summary {
                 VStack(alignment: .leading, spacing: AppTheme.Spacing.lg) {
                     // Brief summary
-                    SummaryCard(title: "Summary", content: summary.briefSummary)
+                    SummaryCard(title: L.summaryLabel, content: summary.briefSummary)
 
                     // Mood
                     if let mood = summary.moodAssessment {
-                        SummaryCard(title: "Mood", content: mood)
+                        SummaryCard(title: L.mood, content: mood)
                     }
 
                     // Key topics
                     if !summary.keyTopics.isEmpty {
                         VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
-                            Text("Key Topics")
+                            Text(L.keyTopics)
                                 .font(AppTheme.Fonts.bodyBold)
 
                             FlowLayout(spacing: 6) {
@@ -73,7 +76,7 @@ struct ConversationDetailView: View {
                     // Question answers
                     if !summary.questionAnswers.isEmpty {
                         VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
-                            Text("Your Questions")
+                            Text(L.yourQuestions)
                                 .font(AppTheme.Fonts.bodyBold)
 
                             ForEach(summary.questionAnswers, id: \.questionId) { answer in
@@ -98,13 +101,13 @@ struct ConversationDetailView: View {
 
                     // Engagement
                     if let engagement = summary.engagementLevel {
-                        SummaryCard(title: "Engagement", content: "Level: \(engagement)")
+                        SummaryCard(title: L.engagement, content: L.engagementLevel(engagement))
                     }
 
                     // Emotional flags
                     if let flags = summary.emotionalFlags, flags.hasFlags {
                         VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
-                            Label("Attention", systemImage: "exclamationmark.triangle")
+                            Label(L.attention, systemImage: "exclamationmark.triangle")
                                 .font(AppTheme.Fonts.bodyBold)
                                 .foregroundStyle(AppTheme.Colors.danger)
 
@@ -125,11 +128,11 @@ struct ConversationDetailView: View {
                     }
 
                     // Detailed summary
-                    SummaryCard(title: "Detailed Analysis", content: summary.detailedSummary)
+                    SummaryCard(title: L.detailedAnalysis, content: summary.detailedSummary)
                 }
                 .padding()
             } else {
-                Text("No summary available yet.")
+                Text(L.noSummaryYet)
                     .foregroundStyle(AppTheme.Colors.textSecondary)
                     .padding()
             }
@@ -141,7 +144,7 @@ struct ConversationDetailView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
                 ForEach(messages) { message in
-                    LiveTranscriptBubble(message: message)
+                    LiveTranscriptBubble(message: message, locale: L)
                 }
             }
             .padding()
@@ -153,8 +156,8 @@ struct ConversationDetailView: View {
         do {
             async let summaryTask = apiClient.getConversationSummary(conversationId: conversation.id)
             async let messagesTask = apiClient.getConversationTranscript(conversationId: conversation.id)
-            summary = try await summaryTask
-            messages = try await messagesTask
+            summary = try await summaryTask.summary
+            messages = try await messagesTask.messages
         } catch {
             // Partial load is ok
         }

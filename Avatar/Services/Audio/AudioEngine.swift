@@ -54,7 +54,9 @@ final class AudioEngine {
             try recorder.startRecording()
             vad.start()
             state = .listening
+            print("AudioEngine: Started listening")
         } catch {
+            print("AudioEngine: Failed to start listening: \(error)")
             state = .idle
         }
     }
@@ -65,25 +67,63 @@ final class AudioEngine {
         vad.stop()
         state = .processing
         recordingAmplitude = 0
+        print("AudioEngine: Stopped listening, sending audio")
         onRecordingFinished?()
     }
 
     func playResponse(data: Data, emotion: Emotion) {
         state = .playingResponse
+        print("AudioEngine: Playing inline audio data, size=\(data.count)")
         do {
+            try AudioSessionManager.shared.configureForConversation()
             try player.play(data: data)
+            print("AudioEngine: Inline audio playback started successfully")
         } catch {
+            print("AudioEngine: Failed to play response data: \(error)")
             state = .idle
         }
     }
 
     func playResponseFromURL(_ url: URL, emotion: Emotion) {
         state = .playingResponse
+        print("AudioEngine: Playing TTS from URL: \(url)")
         Task {
             do {
-                try await player.playFromURL(url)
+                // Configure audio session for speaker playback BEFORE downloading
+                try AudioSessionManager.shared.configureForConversation()
+
+                let (data, response) = try await URLSession.shared.data(from: url)
+                let httpResponse = response as? HTTPURLResponse
+                let statusCode = httpResponse?.statusCode ?? -1
+                print("AudioEngine: Downloaded TTS audio, size=\(data.count), status=\(statusCode), contentType=\(httpResponse?.value(forHTTPHeaderField: "Content-Type") ?? "unknown")")
+
+                guard statusCode == 200 else {
+                    print("AudioEngine: TTS download failed with status \(statusCode)")
+                    await MainActor.run { self.state = .idle }
+                    return
+                }
+                guard !data.isEmpty else {
+                    print("AudioEngine: Empty audio data from URL")
+                    await MainActor.run { self.state = .idle }
+                    return
+                }
+
+                // Reconfigure to ensure speaker route right before playback
+                try AudioSessionManager.shared.configureForConversation()
+
+                // Play on main thread (AVAudioPlayer + Timer need it)
+                await MainActor.run {
+                    do {
+                        try self.player.play(data: data)
+                        print("AudioEngine: TTS playback started successfully")
+                    } catch {
+                        print("AudioEngine: Failed to play downloaded audio: \(error)")
+                        self.state = .idle
+                    }
+                }
             } catch {
-                state = .idle
+                print("AudioEngine: Failed to download TTS audio: \(error)")
+                await MainActor.run { self.state = .idle }
             }
         }
     }

@@ -6,6 +6,7 @@ import UIKit
 @Observable
 final class AvatarCreationViewModel {
     var avatarName = ""
+    var childId: String?
     var selectedSkinTone = "FFDBB4"
     var selectedHairStyle: HairStyle = .short
     var selectedHairColor = "4A3728"
@@ -56,11 +57,12 @@ final class AvatarCreationViewModel {
         isCreating = true
         defer { isCreating = false }
 
-        guard let image = generatedAvatarImage else { return false }
+        guard let image = generatedAvatarImage,
+              let childId else { return false }
 
         do {
-            // Save to Firebase Storage + Firestore (+ local cache)
-            try await storage.saveAvatar(name: avatarName, image: image)
+            // Save to Firebase Storage + Firestore (+ local cache) per-child
+            try await storage.saveAvatar(name: avatarName, image: image, childId: childId)
             return true
         } catch {
             analysisError = error.localizedDescription

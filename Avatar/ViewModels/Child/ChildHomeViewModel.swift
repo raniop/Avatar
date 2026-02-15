@@ -10,46 +10,59 @@ final class ChildHomeViewModel {
     var isLoading = false
     var errorMessage: String?
 
+    // Navigation state for starting a mission
+    var selectedMission: Mission?
+    var child: Child?
+    var showConversation = false
+    var isStartingMission = false
+
     private let storage = AvatarStorage.shared
+    private let apiClient = APIClient.shared
 
     var hasAvatar: Bool {
         avatarName != nil && avatarImage != nil
     }
 
+    /// Set the selected child (from AppRouter) before calling loadData()
+    func configure(with child: Child) {
+        self.child = child
+    }
+
     func loadData() async {
+        guard let child else { return }
         isLoading = true
 
-        // Load avatar (local cache first, then Firebase)
-        if let savedAvatar = await storage.loadAvatar() {
+        // Load avatar from per-child local cache (instant)
+        if let savedAvatar = await storage.loadAvatar(childId: child.id) {
             avatarName = savedAvatar.name
             avatarImage = savedAvatar.image
         }
 
-        // Load mock missions
-        loadMockMissions()
+        // Load missions from backend
+        await loadMissions()
 
         isLoading = false
     }
 
     func startMission(_ mission: Mission) {
-        // TODO: Create conversation and navigate to conversation view
+        guard let child = child, !isStartingMission else { return }
+
+        isStartingMission = true
+        selectedMission = mission
+
+        // Don't create conversation here -- let ConversationViewModel handle it
+        // This avoids the double-creation bug and speeds up navigation
+        showConversation = true
+        isStartingMission = false
     }
 
-    private func loadMockMissions() {
-        availableMissions = MissionTheme.allCases.prefix(6).enumerated().map { index, theme in
-            Mission(
-                id: "mock-\(theme.rawValue)",
-                theme: theme,
-                titleEn: "\(theme.displayNameEn) Adventure",
-                titleHe: "הרפתקת \(theme.displayNameHe)",
-                descriptionEn: "Join your avatar on an amazing \(theme.displayNameEn.lowercased()) mission!",
-                descriptionHe: "הצטרפו לאווטר שלכם למשימת \(theme.displayNameHe) מדהימה!",
-                ageRangeMin: 3,
-                ageRangeMax: 7,
-                durationMinutes: 5,
-                sceneryAssetKey: theme.rawValue,
-                avatarCostumeKey: theme.rawValue
-            )
+    private func loadMissions() async {
+        do {
+            // Read persisted locale to fetch localized mission titles
+            let localeRaw = UserDefaults.standard.string(forKey: "app_locale") ?? "en"
+            availableMissions = try await apiClient.getMissions(locale: localeRaw)
+        } catch {
+            print("Failed to load missions: \(error.localizedDescription)")
         }
     }
 }

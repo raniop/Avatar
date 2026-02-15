@@ -119,7 +119,9 @@ export async function conversationRoutes(fastify: FastifyInstance) {
       // Generate TTS audio for the opening message so kids can hear it
       let openingAudioUrl: string | null = null;
       let openingAudioDuration: number | null = null;
+      let openingAudioBuffer: Buffer | null = null;
       try {
+        console.log(`[TTS] Generating opening audio for: "${openingMessage.text.substring(0, 60)}...", voiceId=${child.avatar?.voiceId || 'default'}, age=${child.age}`);
         const ttsResult = await voicePipeline.generateAvatarAudio(
           openingMessage.text,
           child.avatar?.voiceId || undefined,
@@ -127,8 +129,10 @@ export async function conversationRoutes(fastify: FastifyInstance) {
         );
         openingAudioUrl = ttsResult.audioUrl;
         openingAudioDuration = ttsResult.audioDuration;
-      } catch (ttsError) {
-        console.error('Failed to generate opening message TTS:', ttsError);
+        openingAudioBuffer = ttsResult.audioBuffer;
+        console.log(`[TTS] Opening audio OK: url=${openingAudioUrl}, duration=${openingAudioDuration}s, bufferSize=${openingAudioBuffer.length}`);
+      } catch (ttsError: any) {
+        console.error('[TTS] Failed to generate opening TTS:', ttsError?.message || ttsError);
         // Continue without audio -- text will still appear
       }
 
@@ -159,6 +163,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
           textContent: avatarMessage.textContent,
           emotion: avatarMessage.emotion,
           audioUrl: avatarMessage.audioUrl,
+          audioData: openingAudioBuffer ? openingAudioBuffer.toString('base64') : null,
           timestamp: avatarMessage.timestamp,
         },
       });

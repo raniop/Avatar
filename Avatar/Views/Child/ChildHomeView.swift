@@ -4,6 +4,8 @@ struct ChildHomeView: View {
     @Environment(AppRouter.self) private var appRouter
     @State private var viewModel = ChildHomeViewModel()
 
+    private var L: AppLocale { appRouter.currentLocale }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -21,80 +23,71 @@ struct ChildHomeView: View {
 
                 ScrollView {
                     VStack(spacing: AppTheme.Spacing.xl) {
-                        // Avatar greeting
-                        if viewModel.hasAvatar {
-                            VStack(spacing: AppTheme.Spacing.md) {
+                        // Avatar greeting — always shown
+                        VStack(spacing: AppTheme.Spacing.md) {
+                            if let image = viewModel.avatarImage {
                                 // Show the AI-generated cartoon avatar
-                                if let image = viewModel.avatarImage {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                        .frame(width: 200, height: 200)
-                                        .clipShape(Circle())
-                                        .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 3))
-                                        .shadow(color: .black.opacity(0.2), radius: 10)
+                                AnimatedAvatarView(image: image)
+                            } else {
+                                // Default placeholder avatar
+                                Circle()
+                                    .fill(.white.opacity(0.2))
+                                    .frame(width: 160, height: 160)
+                                    .overlay(
+                                        Image(systemName: "face.smiling.inverse")
+                                            .font(.system(size: 70))
+                                            .foregroundStyle(.white.opacity(0.6))
+                                    )
+                            }
+
+                            Text(L.childGreeting(viewModel.child?.name ?? ""))
+                                .font(AppTheme.Fonts.childLarge)
+                                .foregroundStyle(.white)
+
+                            Text(L.readyForAdventure)
+                                .font(AppTheme.Fonts.childBody)
+                                .foregroundStyle(.white.opacity(0.9))
+
+                            // Create or change avatar button
+                            NavigationLink {
+                                AvatarCreationView()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: viewModel.hasAvatar
+                                          ? "arrow.triangle.2.circlepath"
+                                          : "wand.and.stars")
+                                    Text(viewModel.hasAvatar ? L.changeAvatar : L.createAvatar)
                                 }
+                                .font(AppTheme.Fonts.caption)
+                                .foregroundStyle(.white.opacity(0.7))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(.white.opacity(0.15))
+                                .clipShape(Capsule())
+                            }
+                        }
+                        .padding(.top, AppTheme.Spacing.xxl)
 
-                                Text("Hi there! I'm \(viewModel.avatarName ?? "")!")
-                                    .font(AppTheme.Fonts.childLarge)
-                                    .foregroundStyle(.white)
+                        // Mission selection — always shown
+                        VStack(spacing: AppTheme.Spacing.md) {
+                            Text(L.chooseYourMission)
+                                .font(AppTheme.Fonts.childBody)
+                                .foregroundStyle(.white)
 
-                                Text("Ready for an adventure?")
-                                    .font(AppTheme.Fonts.childBody)
-                                    .foregroundStyle(.white.opacity(0.9))
-
-                                // Option to recreate avatar
-                                NavigationLink {
-                                    AvatarCreationView()
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "arrow.triangle.2.circlepath")
-                                        Text("Change Avatar")
-                                    }
+                            if viewModel.isLoading && viewModel.availableMissions.isEmpty {
+                                ProgressView()
+                                    .tint(.white)
+                                    .scaleEffect(1.2)
+                                    .padding(.top, 20)
+                            } else if viewModel.availableMissions.isEmpty {
+                                Text(L.noMissions)
                                     .font(AppTheme.Fonts.caption)
                                     .foregroundStyle(.white.opacity(0.7))
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 8)
-                                    .background(.white.opacity(0.15))
-                                    .clipShape(Capsule())
-                                }
-                            }
-                            .padding(.top, AppTheme.Spacing.xxl)
-                        } else {
-                            // No avatar yet - show create prompt
-                            VStack(spacing: AppTheme.Spacing.md) {
-                                Image(systemName: "wand.and.stars")
-                                    .font(.system(size: 60))
-                                    .foregroundStyle(.white)
-
-                                Text("Create Your Avatar!")
-                                    .font(AppTheme.Fonts.childLarge)
-                                    .foregroundStyle(.white)
-
-                                NavigationLink {
-                                    AvatarCreationView()
-                                } label: {
-                                    Text("Let's Go!")
-                                        .font(AppTheme.Fonts.childBody)
-                                        .foregroundStyle(AppTheme.Colors.primary)
-                                        .padding(.horizontal, AppTheme.Spacing.xl)
-                                        .padding(.vertical, AppTheme.Spacing.md)
-                                        .background(.white)
-                                        .clipShape(Capsule())
-                                }
-                            }
-                            .padding(.top, AppTheme.Spacing.xxl)
-                        }
-
-                        // Mission selection
-                        if viewModel.hasAvatar {
-                            VStack(spacing: AppTheme.Spacing.md) {
-                                Text("Choose Your Mission")
-                                    .font(AppTheme.Fonts.childBody)
-                                    .foregroundStyle(.white)
-
+                                    .padding(.top, 10)
+                            } else {
                                 MissionCarouselView(
                                     missions: viewModel.availableMissions,
+                                    locale: L,
                                     onSelect: { mission in
                                         viewModel.startMission(mission)
                                     }
@@ -106,9 +99,37 @@ struct ChildHomeView: View {
                     }
                 }
             }
+            .environment(\.layoutDirection, L.layoutDirection)
             .navigationBarHidden(true)
-            .task {
+            .task(id: appRouter.currentLocale) {
+                if let selectedChild = appRouter.selectedChild {
+                    viewModel.configure(with: selectedChild)
+                }
                 await viewModel.loadData()
+            }
+            .fullScreenCover(isPresented: $viewModel.showConversation) {
+                if let child = viewModel.child,
+                   let mission = viewModel.selectedMission {
+                    ConversationView(
+                        viewModel: ConversationViewModel(child: child, mission: mission)
+                    )
+                }
+            }
+            .overlay {
+                if viewModel.isStartingMission {
+                    ZStack {
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                                .tint(.white)
+                            Text(L.gettingReady)
+                                .font(AppTheme.Fonts.childBody)
+                                .foregroundStyle(.white)
+                        }
+                    }
+                }
             }
         }
     }

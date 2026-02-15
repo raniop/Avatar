@@ -12,5 +12,6 @@ struct Child: Codable, Identifiable, Hashable {
     var locale: AppLocale
     let createdAt: Date
 
-    var avatarConfig: AvatarConfig?
+    // Backend returns "avatar" field (not "avatarConfig")
+    var avatar: AvatarConfig?
 }

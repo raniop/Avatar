@@ -199,24 +199,24 @@ struct MouthView: View {
 }
 
 struct HairView: View {
-    let style: HairStyle
+    let style: String
     let color: Color
     let size: CGFloat
 
     var body: some View {
         Group {
             switch style {
-            case .short:
+            case "short":
                 Capsule()
                     .fill(color)
                     .frame(width: size * 1.05, height: size * 0.4)
                     .offset(y: -size * 0.3)
-            case .medium:
+            case "medium":
                 Capsule()
                     .fill(color)
                     .frame(width: size * 1.1, height: size * 0.5)
                     .offset(y: -size * 0.25)
-            case .long:
+            case "long":
                 VStack(spacing: 0) {
                     Capsule()
                         .fill(color)
@@ -226,7 +226,7 @@ struct HairView: View {
                         .frame(width: size * 0.9, height: size * 0.4)
                 }
                 .offset(y: -size * 0.25)
-            case .curly:
+            case "curly":
                 ZStack {
                     ForEach(0..<8, id: \.self) { i in
                         Circle()
@@ -238,29 +238,34 @@ struct HairView: View {
                             )
                     }
                 }
-            case .braids:
+            case "braids":
                 HStack(spacing: size * 0.3) {
                     Capsule().fill(color).frame(width: size * 0.12, height: size * 0.5)
                     Capsule().fill(color).frame(width: size * 0.12, height: size * 0.5)
                 }
                 .offset(y: size * 0.1)
-            case .ponytail:
+            case "ponytail":
                 VStack(spacing: 0) {
                     Capsule().fill(color).frame(width: size * 1.05, height: size * 0.35)
                     Capsule().fill(color).frame(width: size * 0.15, height: size * 0.35)
                         .offset(x: size * 0.25)
                 }
                 .offset(y: -size * 0.25)
-            case .buzz:
+            case "buzz":
                 Capsule()
                     .fill(color.opacity(0.5))
                     .frame(width: size * 1.02, height: size * 0.3)
                     .offset(y: -size * 0.28)
-            case .afro:
+            case "afro":
                 Circle()
                     .fill(color)
                     .frame(width: size * 1.3, height: size * 1.1)
                     .offset(y: -size * 0.15)
+            default:
+                Capsule()
+                    .fill(color)
+                    .frame(width: size * 1.05, height: size * 0.4)
+                    .offset(y: -size * 0.3)
             }
         }
     }

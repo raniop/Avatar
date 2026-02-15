@@ -8,6 +8,8 @@ final class AudioSessionManager {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
         try session.setActive(true)
+        // Force audio to speaker (not earpiece) — some devices default to earpiece with .playAndRecord
+        try session.overrideOutputAudioPort(.speaker)
     }
 
     func configureForPlaybackOnly() throws {

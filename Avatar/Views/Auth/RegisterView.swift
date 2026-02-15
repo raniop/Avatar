@@ -4,6 +4,7 @@ import GoogleSignIn
 
 struct RegisterView: View {
     @Environment(AuthManager.self) private var authManager
+    @Environment(AppRouter.self) private var appRouter
     @Binding var showRegister: Bool
 
     @State private var displayName = ""
@@ -12,6 +13,8 @@ struct RegisterView: View {
     @State private var confirmPassword = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
+
+    private var L: AppLocale { appRouter.currentLocale }
 
     private var isValid: Bool {
         !displayName.isEmpty && !email.isEmpty && !password.isEmpty
@@ -29,7 +32,7 @@ struct RegisterView: View {
                         .font(.system(size: 50))
                         .foregroundStyle(.white)
 
-                    Text("Create Account")
+                    Text(L.createAccount)
                         .font(AppTheme.Fonts.heading)
                         .foregroundStyle(.white)
                 }
@@ -43,7 +46,7 @@ struct RegisterView: View {
                         HStack(spacing: 10) {
                             Image(systemName: "apple.logo")
                                 .font(.system(size: 18, weight: .semibold))
-                            Text("Continue with Apple")
+                            Text(L.continueWithApple)
                                 .font(AppTheme.Fonts.bodyBold)
                         }
                         .frame(maxWidth: .infinity)
@@ -72,7 +75,7 @@ struct RegisterView: View {
                                         )
                                     )
                             }
-                            Text("Continue with Google")
+                            Text(L.continueWithGoogle)
                                 .font(AppTheme.Fonts.bodyBold)
                         }
                         .frame(maxWidth: .infinity)
@@ -93,7 +96,7 @@ struct RegisterView: View {
                     Rectangle()
                         .fill(.white.opacity(0.3))
                         .frame(height: 1)
-                    Text("or")
+                    Text(L.or)
                         .font(AppTheme.Fonts.caption)
                         .foregroundStyle(.white.opacity(0.6))
                         .padding(.horizontal, 12)
@@ -105,7 +108,7 @@ struct RegisterView: View {
 
                 // Email Registration Form
                 VStack(spacing: AppTheme.Spacing.md) {
-                    TextField("Your Name", text: $displayName)
+                    TextField(L.yourName, text: $displayName)
                         .textFieldStyle(.plain)
                         .padding()
                         .background(.white.opacity(0.2))
@@ -113,7 +116,7 @@ struct RegisterView: View {
                         .foregroundStyle(.white)
                         .textContentType(.name)
 
-                    TextField("Email", text: $email)
+                    TextField(L.email, text: $email)
                         .textFieldStyle(.plain)
                         .padding()
                         .background(.white.opacity(0.2))
@@ -123,7 +126,7 @@ struct RegisterView: View {
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
 
-                    SecureField("Password (6+ characters)", text: $password)
+                    SecureField(L.passwordMinChars, text: $password)
                         .textFieldStyle(.plain)
                         .padding()
                         .background(.white.opacity(0.2))
@@ -131,7 +134,7 @@ struct RegisterView: View {
                         .foregroundStyle(.white)
                         .textContentType(.newPassword)
 
-                    SecureField("Confirm Password", text: $confirmPassword)
+                    SecureField(L.confirmPassword, text: $confirmPassword)
                         .textFieldStyle(.plain)
                         .padding()
                         .background(.white.opacity(0.2))
@@ -146,7 +149,7 @@ struct RegisterView: View {
                     }
 
                     if !confirmPassword.isEmpty && password != confirmPassword {
-                        Text("Passwords don't match")
+                        Text(L.passwordsDontMatch)
                             .font(AppTheme.Fonts.caption)
                             .foregroundStyle(AppTheme.Colors.accent)
                     }
@@ -159,7 +162,7 @@ struct RegisterView: View {
                                 ProgressView()
                                     .tint(.purple)
                             } else {
-                                Text("Create Account")
+                                Text(L.createAccount)
                                     .font(AppTheme.Fonts.bodyBold)
                             }
                         }
@@ -174,7 +177,7 @@ struct RegisterView: View {
                     Button {
                         withAnimation { showRegister = false }
                     } label: {
-                        Text("Already have an account? **Log In**")
+                        Text(L.alreadyHaveAccount)
                             .font(AppTheme.Fonts.body)
                             .foregroundStyle(.white)
                     }
@@ -185,6 +188,7 @@ struct RegisterView: View {
                     .frame(height: 40)
             }
         }
+        .environment(\.layoutDirection, L.layoutDirection)
         .scrollBounceBehavior(.basedOnSize)
         .background(AppTheme.Colors.backgroundGradient)
         .ignoresSafeArea()

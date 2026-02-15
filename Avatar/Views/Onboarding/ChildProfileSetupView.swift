@@ -2,54 +2,61 @@ import SwiftUI
 
 struct ChildProfileSetupView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppRouter.self) private var appRouter
     @State private var viewModel = ChildProfileViewModel()
+
+    private var L: AppLocale { appRouter.currentLocale }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Basic Info") {
-                    TextField("Child's Name", text: $viewModel.name)
-                    Stepper("Age: \(viewModel.age)", value: $viewModel.age, in: 2...12)
-                    Picker("Gender", selection: $viewModel.gender) {
-                        Text("Boy").tag("boy")
-                        Text("Girl").tag("girl")
-                        Text("Other").tag("other")
+                Section(L.basicInfo) {
+                    TextField(L.childsName, text: $viewModel.name)
+                    Stepper("\(L.age): \(viewModel.age)", value: $viewModel.age, in: 2...12)
+                    Picker(L.gender, selection: $viewModel.gender) {
+                        Text(L.boy).tag("boy")
+                        Text(L.girl).tag("girl")
+                        Text(L.other).tag("other")
                     }
                 }
 
-                Section("Interests") {
+                Section(L.interests) {
                     InterestTagsView(
                         allInterests: viewModel.availableInterests,
-                        selectedInterests: $viewModel.selectedInterests
+                        selectedInterests: $viewModel.selectedInterests,
+                        labelFor: { viewModel.localizedInterest($0) }
                     )
                 }
 
-                Section("Development Goals") {
-                    Text("What would you like to work on?")
+                Section(L.developmentGoals) {
+                    Text(L.whatToWorkOn)
                         .font(AppTheme.Fonts.caption)
                         .foregroundStyle(AppTheme.Colors.textSecondary)
 
                     InterestTagsView(
                         allInterests: viewModel.availableGoals,
-                        selectedInterests: $viewModel.selectedGoals
+                        selectedInterests: $viewModel.selectedGoals,
+                        labelFor: { viewModel.localizedGoal($0) }
                     )
                 }
 
-                Section("Language") {
-                    Picker("Primary Language", selection: $viewModel.locale) {
-                        Text("English").tag(AppLocale.english)
-                        Text("Hebrew").tag(AppLocale.hebrew)
+                Section(L.language) {
+                    Picker(L.primaryLanguage, selection: $viewModel.locale) {
+                        Text(AppLocale.english.displayName).tag(AppLocale.english)
+                        Text(AppLocale.hebrew.displayName).tag(AppLocale.hebrew)
                     }
                 }
             }
-            .navigationTitle("Add Child")
+            .environment(\.layoutDirection, L.layoutDirection)
+            .onAppear { viewModel.locale = L }
+            .navigationTitle(L.addChild)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(L.cancel) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button(L.save) {
                         Task {
                             await viewModel.saveChild()
                             dismiss()
@@ -65,13 +72,14 @@ struct ChildProfileSetupView: View {
 struct InterestTagsView: View {
     let allInterests: [String]
     @Binding var selectedInterests: [String]
+    var labelFor: (String) -> String = { $0 }
 
     var body: some View {
         FlowLayout(spacing: 8) {
             ForEach(allInterests, id: \.self) { interest in
                 let isSelected = selectedInterests.contains(interest)
 
-                Text(interest)
+                Text(labelFor(interest))
                     .font(AppTheme.Fonts.caption)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)

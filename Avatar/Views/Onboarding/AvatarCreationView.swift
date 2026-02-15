@@ -3,8 +3,11 @@ import PhotosUI
 
 struct AvatarCreationView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppRouter.self) private var appRouter
     @State private var viewModel = AvatarCreationViewModel()
     @State private var selectedPhoto: PhotosPickerItem?
+
+    private var L: AppLocale { appRouter.currentLocale }
 
     var body: some View {
         ZStack {
@@ -12,66 +15,67 @@ struct AvatarCreationView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Avatar preview
-                ZStack {
-                    if let image = viewModel.generatedAvatarImage {
-                        // Generated cartoon avatar
-                        Image(uiImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 220, height: 220)
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 3))
-                            .shadow(color: .black.opacity(0.2), radius: 10)
-                            .transition(.scale.combined(with: .opacity))
-                    } else {
-                        // Placeholder
-                        Circle()
-                            .fill(.white.opacity(0.15))
-                            .frame(width: 220, height: 220)
-                            .overlay(
-                                VStack(spacing: 8) {
-                                    Image(systemName: "camera.fill")
-                                        .font(.system(size: 40))
-                                    Text("Upload a photo\nto create avatar")
-                                        .font(AppTheme.Fonts.caption)
-                                        .multilineTextAlignment(.center)
-                                }
-                                .foregroundStyle(.white.opacity(0.6))
-                            )
-                    }
+                // Avatar preview — tapping the circle opens the photo picker
+                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                    ZStack {
+                        if let image = viewModel.generatedAvatarImage {
+                            // Generated cartoon avatar
+                            Image(uiImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 220, height: 220)
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 3))
+                                .shadow(color: .black.opacity(0.2), radius: 10)
+                                .transition(.scale.combined(with: .opacity))
 
-                    if viewModel.isAnalyzingPhoto {
-                        Circle()
-                            .fill(.black.opacity(0.5))
+                            // Small change-photo badge
+                            VStack {
+                                Spacer()
+                                HStack {
+                                    Spacer()
+                                    Image(systemName: "arrow.triangle.2.circlepath.camera")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(10)
+                                        .background(Circle().fill(.black.opacity(0.45)))
+                                }
+                            }
                             .frame(width: 220, height: 220)
-                        VStack(spacing: 8) {
-                            ProgressView()
-                                .tint(.white)
-                                .scaleEffect(1.5)
-                            Text("Creating avatar...")
-                                .font(AppTheme.Fonts.caption)
-                                .foregroundStyle(.white)
+                        } else {
+                            // Placeholder
+                            Circle()
+                                .fill(.white.opacity(0.15))
+                                .frame(width: 220, height: 220)
+                                .overlay(
+                                    VStack(spacing: 8) {
+                                        Image(systemName: "camera.fill")
+                                            .font(.system(size: 40))
+                                        Text(L.tapToUploadPhoto)
+                                            .font(AppTheme.Fonts.caption)
+                                            .multilineTextAlignment(.center)
+                                    }
+                                    .foregroundStyle(.white.opacity(0.6))
+                                )
+                        }
+
+                        if viewModel.isAnalyzingPhoto {
+                            Circle()
+                                .fill(.black.opacity(0.5))
+                                .frame(width: 220, height: 220)
+                            VStack(spacing: 8) {
+                                ProgressView()
+                                    .tint(.white)
+                                    .scaleEffect(1.5)
+                                Text(L.creatingAvatar)
+                                    .font(AppTheme.Fonts.caption)
+                                    .foregroundStyle(.white)
+                            }
                         }
                     }
                 }
-                .padding(.top, AppTheme.Spacing.lg)
-
-                // Photo upload button
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                    HStack(spacing: 6) {
-                        Image(systemName: viewModel.hasGeneratedAvatar ? "arrow.triangle.2.circlepath.camera" : "camera.fill")
-                        Text(viewModel.hasGeneratedAvatar ? "Change Photo" : "Upload Photo")
-                    }
-                    .font(AppTheme.Fonts.caption)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(.white.opacity(0.25))
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-                }
                 .disabled(viewModel.isAnalyzingPhoto || viewModel.isCreating)
-                .padding(.top, AppTheme.Spacing.sm)
+                .padding(.top, AppTheme.Spacing.lg)
                 .onChange(of: selectedPhoto) { _, newItem in
                     guard let newItem else { return }
                     Task {
@@ -93,11 +97,11 @@ struct AvatarCreationView: View {
                 ScrollView {
                     VStack(spacing: AppTheme.Spacing.lg) {
                         VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
-                            Text("Avatar Name")
+                            Text(L.childNameLabel)
                                 .font(AppTheme.Fonts.bodyBold)
                                 .foregroundStyle(.white)
 
-                            TextField("Name your friend!", text: $viewModel.avatarName)
+                            TextField(L.enterChildName, text: $viewModel.avatarName)
                                 .textFieldStyle(.plain)
                                 .padding()
                                 .background(.white.opacity(0.2))
@@ -119,7 +123,7 @@ struct AvatarCreationView: View {
                                     ProgressView()
                                         .tint(canCreate ? AppTheme.Colors.primary : .white.opacity(0.5))
                                 }
-                                Text(viewModel.isCreating ? "Saving..." : "Create My Avatar!")
+                                Text(viewModel.isCreating ? L.saving : L.createChild)
                             }
                             .font(AppTheme.Fonts.childBody)
                             .frame(maxWidth: .infinity)
@@ -136,9 +140,13 @@ struct AvatarCreationView: View {
                 }
             }
         }
-        .navigationTitle("Create Avatar")
+        .environment(\.layoutDirection, L.layoutDirection)
+        .navigationTitle(L.createChildTitle)
         .navigationBarTitleDisplayMode(.inline)
         .allowsHitTesting(!viewModel.isCreating)
+        .onAppear {
+            viewModel.childId = appRouter.selectedChild?.id
+        }
     }
 
     private var canCreate: Bool {

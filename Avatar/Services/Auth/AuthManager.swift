@@ -18,6 +18,7 @@ final class AuthManager {
     private(set) var firebaseUser: FirebaseAuth.User?
 
     private let apiClient: APIClient
+    private let keychain = KeychainManager.shared
     private var authStateHandle: AuthStateDidChangeListenerHandle?
 
     // For Apple Sign-In nonce
@@ -25,6 +26,12 @@ final class AuthManager {
 
     init() {
         self.apiClient = APIClient.shared
+
+        // Restore saved backend JWT token if available
+        if let savedToken = keychain.getAccessToken() {
+            apiClient.setAuthToken(savedToken)
+        }
+
         listenToAuthState()
     }
 
@@ -46,6 +53,8 @@ final class AuthManager {
                 } else {
                     self.firebaseUser = nil
                     self.currentUser = nil
+                    self.apiClient.clearAuthToken()
+                    self.keychain.clearTokens()
                     self.state = .unauthenticated
                 }
             }
@@ -57,15 +66,24 @@ final class AuthManager {
     private func syncWithBackend(firebaseUser: FirebaseAuth.User) async {
         do {
             let idToken = try await firebaseUser.getIDToken()
+
+            // Temporarily use Firebase token to authenticate the /auth/firebase call
             apiClient.setAuthToken(idToken)
 
-            let user = try await apiClient.firebaseAuth(
+            let response = try await apiClient.firebaseAuth(
                 idToken: idToken,
                 displayName: firebaseUser.displayName ?? "User"
             )
-            currentUser = user
-            state = .authenticated(user)
+
+            // Store the BACKEND JWT token (not the Firebase token!) for all future API calls
+            let backendToken = response.accessToken
+            apiClient.setAuthToken(backendToken)
+            keychain.saveAccessToken(backendToken)
+
+            currentUser = response.user
+            state = .authenticated(response.user)
         } catch {
+            print("Backend sync failed: \(error.localizedDescription)")
             // If backend sync fails, use Firebase user info directly
             let user = User(
                 id: firebaseUser.uid,
@@ -151,6 +169,8 @@ final class AuthManager {
         try? Auth.auth().signOut()
         currentUser = nil
         firebaseUser = nil
+        apiClient.clearAuthToken()
+        keychain.clearTokens()
         state = .unauthenticated
     }
 
@@ -186,10 +206,4 @@ enum AuthError: LocalizedError {
         case .noRootViewController: return "Cannot find root view controller"
         }
     }
-}
-
-struct AuthResponse: Codable {
-    let accessToken: String
-    let refreshToken: String
-    let user: User
 }

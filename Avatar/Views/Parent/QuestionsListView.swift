@@ -2,7 +2,10 @@ import SwiftUI
 
 struct QuestionsListView: View {
     let child: Child
+    @Environment(AppRouter.self) private var appRouter
     @State private var viewModel: QuestionsViewModel
+
+    private var L: AppLocale { appRouter.currentLocale }
 
     init(child: Child) {
         self.child = child
@@ -13,7 +16,7 @@ struct QuestionsListView: View {
         List {
             Section {
                 ForEach(viewModel.questions) { question in
-                    QuestionRow(question: question)
+                    QuestionRow(question: question, locale: L)
                 }
                 .onDelete { indexSet in
                     Task {
@@ -23,12 +26,13 @@ struct QuestionsListView: View {
                     }
                 }
             } header: {
-                Text("Active Questions")
+                Text(L.activeQuestions)
             } footer: {
-                Text("These questions will be naturally woven into your child's next conversation with their avatar.")
+                Text(L.questionsFooter)
             }
         }
-        .navigationTitle("Questions for \(child.name)")
+        .environment(\.layoutDirection, L.layoutDirection)
+        .navigationTitle(L.questionsFor(child.name))
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -39,7 +43,7 @@ struct QuestionsListView: View {
             }
         }
         .sheet(isPresented: $viewModel.showAddQuestion) {
-            AddQuestionSheet(viewModel: viewModel)
+            AddQuestionSheet(viewModel: viewModel, locale: L)
         }
         .task {
             await viewModel.loadQuestions()
@@ -49,6 +53,7 @@ struct QuestionsListView: View {
 
 struct QuestionRow: View {
     let question: ParentQuestion
+    let locale: AppLocale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -66,14 +71,14 @@ struct QuestionRow: View {
                 }
 
                 if question.isRecurring {
-                    Label("Recurring", systemImage: "repeat")
+                    Label(locale.recurring, systemImage: "repeat")
                         .font(.caption)
                         .foregroundStyle(AppTheme.Colors.textSecondary)
                 }
 
                 Spacer()
 
-                Text("Priority: \(question.priority)")
+                Text(locale.priorityLabel(question.priority))
                     .font(.caption)
                     .foregroundStyle(AppTheme.Colors.textSecondary)
             }
@@ -84,6 +89,7 @@ struct QuestionRow: View {
 
 struct AddQuestionSheet: View {
     @Bindable var viewModel: QuestionsViewModel
+    let locale: AppLocale
     @Environment(\.dismiss) private var dismiss
 
     @State private var questionText = ""
@@ -94,39 +100,39 @@ struct AddQuestionSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Question") {
-                    TextField("What would you like to ask?", text: $questionText, axis: .vertical)
+                Section(locale.question) {
+                    TextField(locale.whatToAsk, text: $questionText, axis: .vertical)
                         .lineLimit(3...6)
                 }
 
-                Section("Details") {
-                    TextField("Topic (optional)", text: $topic)
+                Section(locale.details) {
+                    TextField(locale.topicOptional, text: $topic)
 
-                    Stepper("Priority: \(priority)", value: $priority, in: 0...5)
+                    Stepper(locale.priorityLabel(priority), value: $priority, in: 0...5)
 
-                    Toggle("Recurring", isOn: $isRecurring)
+                    Toggle(locale.recurring, isOn: $isRecurring)
                 }
 
                 Section {
-                    Text("Example questions:")
+                    Text(locale.exampleQuestions)
                         .font(.caption)
                         .foregroundStyle(AppTheme.Colors.textSecondary)
-                    Text("How was your day at school?")
+                    Text(locale.exampleQ1)
                         .font(.caption)
-                    Text("Did anyone bother you today?")
+                    Text(locale.exampleQ2)
                         .font(.caption)
-                    Text("What made you happy today?")
+                    Text(locale.exampleQ3)
                         .font(.caption)
                 }
             }
-            .navigationTitle("Add Question")
+            .navigationTitle(locale.addQuestion)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(locale.cancel) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
+                    Button(locale.add) {
                         Task {
                             await viewModel.addQuestion(
                                 text: questionText,

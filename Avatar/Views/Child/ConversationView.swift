@@ -3,6 +3,9 @@ import SwiftUI
 struct ConversationView: View {
     @Bindable var viewModel: ConversationViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppRouter.self) private var appRouter
+
+    private var L: AppLocale { appRouter.currentLocale }
 
     var body: some View {
         ZStack {
@@ -15,19 +18,24 @@ struct ConversationView: View {
                 ConversationTopBar(
                     timeRemaining: viewModel.missionTimeRemaining,
                     phase: viewModel.phase,
+                    locale: L,
                     onClose: {
-                        Task { await viewModel.endMission() }
+                        Task { await viewModel.endMission(userInitiated: true) }
                     }
                 )
 
                 Spacer()
 
-                // Avatar
-                AvatarDisplayView(
-                    config: viewModel.child.avatarConfig,
-                    animator: viewModel.animator,
-                    size: 260
-                )
+                // Avatar -- use DALL-E image if available, else procedural
+                if let img = viewModel.avatarImage {
+                    AnimatedAvatarView(image: img, size: 220)
+                } else {
+                    AvatarDisplayView(
+                        config: viewModel.child.avatar,
+                        animator: viewModel.animator,
+                        size: 260
+                    )
+                }
 
                 // Speech bubbles
                 if !viewModel.currentTranscription.isEmpty {
@@ -40,14 +48,14 @@ struct ConversationView: View {
                     .transition(.scale.combined(with: .opacity))
                 }
 
-                if let lastAvatarMessage = viewModel.messages.last(where: { $0.role == .avatar }) {
+                if !viewModel.typewriterText.isEmpty {
                     SpeechBubbleView(
-                        text: lastAvatarMessage.textContent,
+                        text: viewModel.typewriterText,
                         isChild: false,
-                        isTyping: false
+                        isTyping: viewModel.isTypewriting
                     )
                     .padding(.horizontal)
-                    .transition(.scale.combined(with: .opacity))
+                    .transition(.opacity)
                 }
 
                 Spacer()
@@ -66,11 +74,11 @@ struct ConversationView: View {
 
             // Phase overlays
             if viewModel.phase == .loading {
-                LoadingOverlay(text: "Getting ready...")
+                LoadingOverlay(text: L.gettingReady)
             }
 
             if viewModel.phase == .complete {
-                MissionCompleteOverlay {
+                MissionCompleteOverlay(locale: L) {
                     dismiss()
                 }
             }
@@ -82,7 +90,7 @@ struct ConversationView: View {
                     HStack {
                         Image(systemName: "eye.fill")
                             .font(.caption)
-                        Text("Parent is watching")
+                        Text(L.parentWatching)
                             .font(.caption)
                     }
                     .padding(6)
@@ -92,9 +100,15 @@ struct ConversationView: View {
                 }
             }
         }
+        .environment(\.layoutDirection, L.layoutDirection)
         .navigationBarHidden(true)
         .task {
             await viewModel.startMission()
+        }
+        .onChange(of: viewModel.phase) { _, newPhase in
+            if newPhase == .dismissed {
+                dismiss()
+            }
         }
     }
 
@@ -105,6 +119,7 @@ struct ConversationView: View {
 struct ConversationTopBar: View {
     let timeRemaining: TimeInterval
     let phase: ConversationViewModel.Phase
+    let locale: AppLocale
     let onClose: () -> Void
 
     var body: some View {
@@ -149,9 +164,9 @@ struct ConversationTopBar: View {
 
     private var phaseText: String {
         switch phase {
-        case .intro: "Starting..."
-        case .active: "Adventure"
-        case .wrapUp: "Wrapping up"
+        case .intro: locale.startingDots
+        case .active: locale.adventure
+        case .wrapUp: locale.wrappingUp
         default: ""
         }
     }
@@ -188,58 +203,62 @@ struct TalkButtonView: View {
     let onPress: () -> Void
     let onRelease: () -> Void
 
-    @State private var pulseScale: CGFloat = 1.0
+    @State private var isPressing = false
+
+    private var canRecord: Bool {
+        !isProcessing && !isPlayingResponse
+    }
 
     var body: some View {
-        Button {
-            // Handled by gesture
-        } label: {
-            ZStack {
-                // Pulse ring when listening
-                if isListening {
-                    Circle()
-                        .stroke(.white.opacity(0.3), lineWidth: 3)
-                        .frame(width: 100 + CGFloat(amplitude) * 40, height: 100 + CGFloat(amplitude) * 40)
-                        .animation(.easeOut(duration: 0.1), value: amplitude)
-                }
-
-                // Main button
+        ZStack {
+            // Pulse ring when listening
+            if isListening {
                 Circle()
-                    .fill(buttonColor)
-                    .frame(width: 80, height: 80)
-                    .shadow(color: buttonColor.opacity(0.4), radius: 8, y: 4)
+                    .stroke(.white.opacity(0.3), lineWidth: 3)
+                    .frame(width: 100 + CGFloat(amplitude) * 40, height: 100 + CGFloat(amplitude) * 40)
+                    .animation(.easeOut(duration: 0.1), value: amplitude)
+            }
 
-                // Icon
-                Group {
-                    if isProcessing {
-                        ProgressView()
-                            .tint(.white)
-                    } else if isPlayingResponse {
-                        Image(systemName: "waveform")
-                            .font(.title)
-                            .foregroundStyle(.white)
-                    } else {
-                        Image(systemName: isListening ? "mic.fill" : "mic")
-                            .font(.title)
-                            .foregroundStyle(.white)
-                    }
+            // Main button
+            Circle()
+                .fill(buttonColor)
+                .frame(width: 80, height: 80)
+                .shadow(color: buttonColor.opacity(0.4), radius: 8, y: 4)
+                .scaleEffect(isPressing ? 0.92 : 1.0)
+                .animation(.easeOut(duration: 0.1), value: isPressing)
+
+            // Icon
+            Group {
+                if isProcessing {
+                    ProgressView()
+                        .tint(.white)
+                } else if isPlayingResponse {
+                    Image(systemName: "waveform")
+                        .font(.title)
+                        .foregroundStyle(.white)
+                } else {
+                    Image(systemName: isListening ? "mic.fill" : "mic")
+                        .font(.title)
+                        .foregroundStyle(.white)
                 }
             }
         }
-        .simultaneousGesture(
+        .contentShape(Circle())
+        .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
-                    if !isListening && !isProcessing && !isPlayingResponse {
-                        onPress()
-                    }
+                    guard canRecord, !isPressing else { return }
+                    isPressing = true
+                    onPress()
                 }
                 .onEnded { _ in
+                    isPressing = false
                     if isListening {
                         onRelease()
                     }
                 }
         )
-        .disabled(isProcessing || isPlayingResponse)
+        .allowsHitTesting(canRecord)
     }
 
     private var buttonColor: Color {
@@ -251,7 +270,7 @@ struct TalkButtonView: View {
 }
 
 struct MissionBackgroundView: View {
-    let theme: MissionTheme
+    let theme: String
 
     var body: some View {
         LinearGradient(
@@ -263,17 +282,16 @@ struct MissionBackgroundView: View {
 
     private var backgroundColors: [Color] {
         switch theme {
-        case .superhero: [Color(hex: "E74C3C"), Color(hex: "3498DB")]
-        case .spaceExplorer: [Color(hex: "2C3E50"), Color(hex: "3498DB")]
-        case .chef: [Color(hex: "F39C12"), Color(hex: "E74C3C")]
-        case .soccerPlayer: [Color(hex: "27AE60"), Color(hex: "2ECC71")]
-        case .detective: [Color(hex: "2C3E50"), Color(hex: "8E44AD")]
-        case .artist: [Color(hex: "E91E63"), Color(hex: "9C27B0")]
-        case .doctor: [Color(hex: "00BCD4"), Color(hex: "2196F3")]
-        case .firefighter: [Color(hex: "FF5722"), Color(hex: "FF9800")]
-        case .scientist: [Color(hex: "00BCD4"), Color(hex: "4CAF50")]
-        case .musician: [Color(hex: "9C27B0"), Color(hex: "673AB7")]
-        case .pirate: [Color(hex: "795548"), Color(hex: "3F51B5")]
+        case "superhero_training": [Color(hex: "E74C3C"), Color(hex: "3498DB")]
+        case "space_adventure": [Color(hex: "2C3E50"), Color(hex: "3498DB")]
+        case "cooking_adventure": [Color(hex: "F39C12"), Color(hex: "E74C3C")]
+        case "underwater_explorer": [Color(hex: "006994"), Color(hex: "00CED1")]
+        case "magical_forest": [Color(hex: "228B22"), Color(hex: "90EE90")]
+        case "dinosaur_world": [Color(hex: "8B4513"), Color(hex: "DAA520")]
+        case "pirate_treasure_hunt": [Color(hex: "795548"), Color(hex: "3F51B5")]
+        case "fairy_tale_kingdom": [Color(hex: "E91E63"), Color(hex: "9C27B0")]
+        case "animal_rescue": [Color(hex: "4CAF50"), Color(hex: "8BC34A")]
+        case "rainbow_land": [Color(hex: "FF6B6B"), Color(hex: "C56CF0")]
         default: [Color(hex: "74B9FF"), Color(hex: "A29BFE")]
         }
     }
@@ -300,6 +318,7 @@ struct LoadingOverlay: View {
 }
 
 struct MissionCompleteOverlay: View {
+    let locale: AppLocale
     let onDismiss: () -> Void
 
     @State private var showStars = false
@@ -321,16 +340,16 @@ struct MissionCompleteOverlay: View {
                     .transition(.scale.combined(with: .opacity))
                 }
 
-                Text("Mission Complete!")
+                Text(locale.missionComplete)
                     .font(AppTheme.Fonts.title)
                     .foregroundStyle(.white)
 
-                Text("Great job today!")
+                Text(locale.greatJob)
                     .font(AppTheme.Fonts.childBody)
                     .foregroundStyle(.white.opacity(0.8))
 
                 Button(action: onDismiss) {
-                    Text("Done")
+                    Text(locale.done)
                         .font(AppTheme.Fonts.childBody)
                         .foregroundStyle(AppTheme.Colors.primary)
                         .padding(.horizontal, AppTheme.Spacing.xl)

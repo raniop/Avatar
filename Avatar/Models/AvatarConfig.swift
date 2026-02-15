@@ -5,12 +5,13 @@ struct AvatarConfig: Codable, Identifiable, Hashable {
     let childId: String
     var name: String
     var skinTone: String
-    var hairStyle: HairStyle
+    var hairStyle: String
     var hairColor: String
     var eyeColor: String
-    var outfit: OutfitType
-    var accessories: [AccessoryType]
-    var voiceId: String
+    var outfit: String
+    var accessories: [String]
+    var voiceId: String?
+    var personalityTraits: [String]?
 
     var skinToneColor: Color { Color(hex: skinTone) }
     var hairColorValue: Color { Color(hex: hairColor) }
@@ -26,7 +27,7 @@ struct AvatarConfig: Codable, Identifiable, Hashable {
 
     static func preview(
         skinTone: String,
-        hairStyle: HairStyle,
+        hairStyle: String,
         hairColor: String,
         eyeColor: String
     ) -> AvatarConfig {
@@ -38,9 +39,10 @@ struct AvatarConfig: Codable, Identifiable, Hashable {
             hairStyle: hairStyle,
             hairColor: hairColor,
             eyeColor: eyeColor,
-            outfit: .tshirt,
+            outfit: "tshirt",
             accessories: [],
-            voiceId: "nova"
+            voiceId: "nova",
+            personalityTraits: []
         )
     }
 }

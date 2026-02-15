@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { Child, Message, ParentQuestion } from '@prisma/client';
+import { Child, Message, ParentQuestion, Prisma } from '@prisma/client';
 import prisma from '../../config/prisma';
 
 const anthropic = new Anthropic();
@@ -231,8 +231,8 @@ Respond with ONLY the JSON object, no additional text.`;
         detailedSummary: data.detailedSummary,
         moodAssessment: data.moodAssessment,
         keyTopics: data.keyTopics,
-        emotionalFlags: data.emotionalFlags,
-        questionAnswers: data.questionAnswers,
+        emotionalFlags: data.emotionalFlags as Prisma.InputJsonValue,
+        questionAnswers: data.questionAnswers as Prisma.InputJsonValue,
         engagementLevel: data.engagementLevel,
         talkativenessScore: data.talkativenessScore,
       },
@@ -241,8 +241,8 @@ Respond with ONLY the JSON object, no additional text.`;
         detailedSummary: data.detailedSummary,
         moodAssessment: data.moodAssessment,
         keyTopics: data.keyTopics,
-        emotionalFlags: data.emotionalFlags,
-        questionAnswers: data.questionAnswers,
+        emotionalFlags: data.emotionalFlags as Prisma.InputJsonValue,
+        questionAnswers: data.questionAnswers as Prisma.InputJsonValue,
         engagementLevel: data.engagementLevel,
         talkativenessScore: data.talkativenessScore,
       },

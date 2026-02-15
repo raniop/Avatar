@@ -8,7 +8,14 @@ struct OpenAIService {
     private let imageURL = "https://api.openai.com/v1/images/generations"
 
     private var apiKey: String {
-        Bundle.main.infoDictionary?["OPENAI_API_KEY"] as? String ?? ""
+        // Read from Secrets.plist (not committed to git)
+        guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+              let data = try? Data(contentsOf: url),
+              let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let key = dict["OPENAI_API_KEY"] as? String else {
+            return ""
+        }
+        return key
     }
 
     struct PhotoAnalysisResult: Decodable {
@@ -117,10 +124,11 @@ struct OpenAIService {
             "prompt": prompt,
             "n": 1,
             "size": "1024x1024",
+            "quality": "standard",
             "response_format": "b64_json"
         ]
 
-        let data = try await postJSON(url: imageURL, body: requestBody, timeout: 60)
+        let data = try await postJSON(url: imageURL, body: requestBody, timeout: 90)
 
         let imageResponse = try JSONDecoder().decode(ImageGenerationResponse.self, from: data)
         guard let b64 = imageResponse.data.first?.b64Json,
@@ -135,7 +143,7 @@ struct OpenAIService {
     // MARK: - Analyze photo for cartoon generation
 
     private func analyzeForCartoon(imageData: Data) async throws -> [String: String] {
-        let compressedData = compressImage(data: imageData, maxDimension: 512, quality: 0.7)
+        let compressedData = compressImage(data: imageData, maxDimension: 384, quality: 0.6)
         let base64Image = compressedData.base64EncodedString()
 
         // Try models in order — gpt-4o-mini is less likely to refuse
@@ -189,7 +197,7 @@ struct OpenAIService {
                             "type": "image_url",
                             "image_url": [
                                 "url": "data:image/jpeg;base64,\(base64Image)",
-                                "detail": "high"
+                                "detail": "low"
                             ]
                         ]
                     ]

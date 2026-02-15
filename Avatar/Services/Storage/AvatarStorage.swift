@@ -5,7 +5,8 @@ import FirebaseFirestore
 import FirebaseStorage
 
 /// Avatar storage using Firebase (Firestore + Storage)
-/// Also caches locally for fast loading
+/// Stores avatars per-child so each child has their own avatar.
+/// Also caches locally for fast loading.
 final class AvatarStorage {
     static let shared = AvatarStorage()
 
@@ -13,8 +14,6 @@ final class AvatarStorage {
     private let storageRef = Storage.storage().reference()
     private let defaults = UserDefaults.standard
     private let cacheDirectory: URL
-
-    private let localCacheKey = "cached_avatar"
 
     private init() {
         cacheDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -24,9 +23,14 @@ final class AvatarStorage {
         Auth.auth().currentUser?.uid
     }
 
+    /// Per-child cache key
+    private func localCacheKey(for childId: String) -> String {
+        "cached_avatar_\(childId)"
+    }
+
     // MARK: - Save (Firebase + local cache)
 
-    func saveAvatar(name: String, image: UIImage) async throws {
+    func saveAvatar(name: String, image: UIImage, childId: String) async throws {
         guard let userId else {
             throw AvatarStorageError.notAuthenticated
         }
@@ -36,7 +40,7 @@ final class AvatarStorage {
             throw AvatarStorageError.imageConversionFailed
         }
 
-        let imagePath = "avatars/\(userId)/avatar.jpg"
+        let imagePath = "avatars/\(userId)/\(childId)/avatar.jpg"
         let imageRef = storageRef.child(imagePath)
 
         let metadata = StorageMetadata()
@@ -53,54 +57,54 @@ final class AvatarStorage {
         ]
 
         try await db.collection("users").document(userId)
-            .collection("avatar").document("current")
+            .collection("avatar").document(childId)
             .setData(avatarData)
 
         // 3. Cache locally for fast loading
-        cacheLocally(name: name, image: image)
+        cacheLocally(name: name, image: image, childId: childId)
 
-        print("AvatarStorage: Saved to Firebase + local cache")
+        print("AvatarStorage: Saved avatar for child \(childId) to Firebase + local cache")
     }
 
     // MARK: - Load (local cache first, then Firebase)
 
-    func loadAvatar() async -> SavedAvatar? {
+    func loadAvatar(childId: String) async -> SavedAvatar? {
         // Try local cache first (instant)
-        if let cached = loadFromLocalCache() {
+        if let cached = loadFromLocalCache(childId: childId) {
             return cached
         }
 
         // No cache - load from Firebase
-        return await loadFromFirebase()
+        return await loadFromFirebase(childId: childId)
     }
 
-    func hasAvatar() -> Bool {
-        defaults.dictionary(forKey: localCacheKey) != nil
+    func hasAvatar(childId: String) -> Bool {
+        defaults.dictionary(forKey: localCacheKey(for: childId)) != nil
     }
 
     // MARK: - Delete
 
-    func deleteAvatar() async {
+    func deleteAvatar(childId: String) async {
         guard let userId else { return }
 
-        let imagePath = "avatars/\(userId)/avatar.jpg"
+        let imagePath = "avatars/\(userId)/\(childId)/avatar.jpg"
         try? await storageRef.child(imagePath).delete()
 
         try? await db.collection("users").document(userId)
-            .collection("avatar").document("current")
+            .collection("avatar").document(childId)
             .delete()
 
-        clearLocalCache()
+        clearLocalCache(childId: childId)
     }
 
     // MARK: - Firebase Loading
 
-    private func loadFromFirebase() async -> SavedAvatar? {
+    private func loadFromFirebase(childId: String) async -> SavedAvatar? {
         guard let userId else { return nil }
 
         do {
             let doc = try await db.collection("users").document(userId)
-                .collection("avatar").document("current")
+                .collection("avatar").document(childId)
                 .getDocument()
 
             guard let data = doc.data(),
@@ -115,30 +119,30 @@ final class AvatarStorage {
             guard let image = UIImage(data: imageData) else { return nil }
 
             // Cache locally
-            cacheLocally(name: name, image: image)
+            cacheLocally(name: name, image: image, childId: childId)
 
-            return SavedAvatar(id: userId, name: name, image: image)
+            return SavedAvatar(id: childId, name: name, image: image)
         } catch {
-            print("AvatarStorage: Failed to load from Firebase: \(error)")
+            print("AvatarStorage: Failed to load from Firebase for child \(childId): \(error)")
             return nil
         }
     }
 
     // MARK: - Local Cache
 
-    private func cacheLocally(name: String, image: UIImage) {
-        let imageName = "avatar_cache.jpg"
+    private func cacheLocally(name: String, image: UIImage, childId: String) {
+        let imageName = "avatar_cache_\(childId).jpg"
         let url = cacheDirectory.appendingPathComponent(imageName)
 
         if let data = image.jpegData(compressionQuality: 0.9) {
             try? data.write(to: url, options: .atomic)
         }
 
-        defaults.set(["name": name, "imageName": imageName], forKey: localCacheKey)
+        defaults.set(["name": name, "imageName": imageName], forKey: localCacheKey(for: childId))
     }
 
-    private func loadFromLocalCache() -> SavedAvatar? {
-        guard let data = defaults.dictionary(forKey: localCacheKey) as? [String: String],
+    private func loadFromLocalCache(childId: String) -> SavedAvatar? {
+        guard let data = defaults.dictionary(forKey: localCacheKey(for: childId)) as? [String: String],
               let name = data["name"],
               let imageName = data["imageName"] else {
             return nil
@@ -147,16 +151,16 @@ final class AvatarStorage {
         let url = cacheDirectory.appendingPathComponent(imageName)
         guard let image = UIImage(contentsOfFile: url.path) else { return nil }
 
-        return SavedAvatar(id: userId ?? "cached", name: name, image: image)
+        return SavedAvatar(id: childId, name: name, image: image)
     }
 
-    private func clearLocalCache() {
-        if let data = defaults.dictionary(forKey: localCacheKey) as? [String: String],
+    private func clearLocalCache(childId: String) {
+        if let data = defaults.dictionary(forKey: localCacheKey(for: childId)) as? [String: String],
            let imageName = data["imageName"] {
             let url = cacheDirectory.appendingPathComponent(imageName)
             try? FileManager.default.removeItem(at: url)
         }
-        defaults.removeObject(forKey: localCacheKey)
+        defaults.removeObject(forKey: localCacheKey(for: childId))
     }
 }
 

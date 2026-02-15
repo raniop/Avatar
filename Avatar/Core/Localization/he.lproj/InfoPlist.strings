@@ -1,0 +1,3 @@
+/* Privacy usage descriptions */
+"NSMicrophoneUsageDescription" = "אווטר צריך גישה למיקרופון כדי שהילד שלך יוכל לדבר עם חבר האווטר שלו.";
+"NSSpeechRecognitionUsageDescription" = "אווטר משתמש בזיהוי דיבור כדי להבין מה הילד שלך אומר.";

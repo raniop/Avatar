@@ -6,8 +6,8 @@ import { getEnv } from '../config/environment';
 // Extend Fastify types for JWT user payload
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: { userId: string; email: string };
-    user: { userId: string; email: string };
+    payload: { userId: string; email: string; type?: string };
+    user: { userId: string; email: string; type?: string };
   }
 }
 

@@ -1,6 +1,15 @@
 import Foundation
 import Observation
 
+/// WebSocket client that speaks the Socket.io v4 protocol (Engine.IO v4)
+/// using native URLSessionWebSocketTask (no external dependencies).
+///
+/// Socket.io protocol packets:
+/// Engine.IO: 0=open, 2=ping, 3=pong, 4=message, 5=upgrade, 6=noop
+/// Socket.IO: 0=connect, 1=disconnect, 2=event, 3=ack, 4=connect_error
+///
+/// An event message looks like: "42[\"eventName\",{...data...}]"
+/// A connect message looks like: "40" or "40/namespace,"
 @Observable
 final class WebSocketClient {
     enum ConnectionState: Equatable {
@@ -12,32 +21,50 @@ final class WebSocketClient {
 
     var connectionState: ConnectionState = .disconnected
 
-    var onTranscription: ((String, Bool) -> Void)?  // (text, isFinal)
-    var onAvatarResponseText: ((String, String) -> Void)?  // (text, emotion)
-    var onAvatarResponseAudio: ((String, Double) -> Void)?  // (audioUrl, duration)
-    var onParentIntervention: ((String) -> Void)?  // (text)
-    var onConversationEnded: ((Data) -> Void)?  // (summary data)
-    var onError: ((String) -> Void)?
+    // MARK: - Callbacks
+
+    // Conversation events
+    var onConversationJoined: ((String) -> Void)?                  // (conversationId)
+    var onConversationProcessing: ((String) -> Void)?              // (status: "transcribing"|"thinking")
+    var onConversationResponse: (([String: Any]) -> Void)?         // (full response data)
+    var onParentIntervention: ((String, String) -> Void)?          // (id, textContent)
+    var onConversationEndedByParent: (() -> Void)?
+    var onConversationError: ((String) -> Void)?
+
+    // Parent monitoring events
+    var onMonitorStarted: (([String: Any]) -> Void)?              // (monitor data with messages)
+    var onMessageUpdate: (([String: Any]) -> Void)?               // (message update data)
+    var onInterventionSent: (([String: Any]) -> Void)?            // (intervention confirmation)
+    var onParentConversationEnded: (([String: Any]) -> Void)?     // (conversation ended)
+    var onActiveSessions: (([[String: Any]]) -> Void)?            // (active sessions list)
+    var onParentError: ((String) -> Void)?
+
+    // MARK: - Private
 
     private var webSocket: URLSessionWebSocketTask?
     private let baseURL: String
-    private var authToken: String?
+    private var pingTimer: Timer?
+    private var sid: String?
 
-    init(baseURL: String = "ws://localhost:3000") {
+    init(baseURL: String = "https://poetic-serenity-production-7de7.up.railway.app") {
         self.baseURL = baseURL
     }
 
-    func setAuthToken(_ token: String) {
-        self.authToken = token
-    }
+    // MARK: - Connection
 
-    func connect() {
+    func connect(token: String? = nil) {
         guard connectionState != .connected && connectionState != .connecting else { return }
         connectionState = .connecting
 
-        var urlString = "\(baseURL)/ws"
-        if let token = authToken {
-            urlString += "?token=\(token)"
+        // Socket.io v4 uses Engine.IO v4 — start with polling handshake, then upgrade to WS
+        // For simplicity, connect directly to websocket transport
+        var urlString = baseURL
+            .replacingOccurrences(of: "http://", with: "ws://")
+            .replacingOccurrences(of: "https://", with: "wss://")
+        urlString += "/ws/?EIO=4&transport=websocket"
+
+        if let token {
+            urlString += "&token=\(token)"
         }
 
         guard let url = URL(string: urlString) else {
@@ -48,76 +75,110 @@ final class WebSocketClient {
         let session = URLSession(configuration: .default)
         webSocket = session.webSocketTask(with: url)
         webSocket?.resume()
-        connectionState = .connected
+
+        // Start receiving messages
         receiveMessages()
     }
 
     func disconnect() {
+        stopPingTimer()
+        // Send Socket.IO disconnect: "41"
+        sendRaw("41")
         webSocket?.cancel(with: .goingAway, reason: nil)
         webSocket = nil
         connectionState = .disconnected
+        sid = nil
     }
 
-    // MARK: - Send Events
+    // MARK: - Conversation Events (Child)
 
-    func joinSession(conversationId: String, role: String) {
-        send(event: "session:join", data: [
+    func joinConversation(conversationId: String, childId: String, parentUserId: String, locale: String = "en") {
+        emitEvent("conversation:join", data: [
             "conversationId": conversationId,
-            "role": role
+            "childId": childId,
+            "parentUserId": parentUserId,
+            "locale": locale
         ])
     }
 
-    func leaveSession(conversationId: String) {
-        send(event: "session:leave", data: [
-            "conversationId": conversationId
-        ])
-    }
-
-    func sendAudioChunk(conversationId: String, audioData: Data, isFinal: Bool) {
+    func sendVoiceData(audioData: Data) {
+        // For binary audio, send as base64 in a JSON event
         let base64Audio = audioData.base64EncodedString()
-        send(event: "voice:audio_chunk", data: [
-            "conversationId": conversationId,
-            "audio": base64Audio,
-            "isFinal": isFinal ? "true" : "false"
+        emitEvent("conversation:voice", data: [
+            "audioData": base64Audio
         ])
     }
 
-    func sendParentIntervention(conversationId: String, text: String) {
-        send(event: "parent:intervene", data: [
-            "conversationId": conversationId,
-            "text": text
+    func sendTextMessage(textContent: String) {
+        emitEvent("conversation:text", data: [
+            "textContent": textContent
         ])
     }
 
-    func startWatching(conversationId: String) {
-        send(event: "parent:watch_start", data: [
+    func leaveConversation() {
+        emitEvent("conversation:leave", data: [:])
+    }
+
+    // MARK: - Parent Events
+
+    func startMonitoring(parentUserId: String, conversationId: String) {
+        emitEvent("parent:monitor", data: [
+            "parentUserId": parentUserId,
             "conversationId": conversationId
         ])
     }
 
-    func stopWatching(conversationId: String) {
-        send(event: "parent:watch_stop", data: [
+    func sendParentIntervention(parentUserId: String, conversationId: String, textContent: String) {
+        emitEvent("parent:intervene", data: [
+            "parentUserId": parentUserId,
+            "conversationId": conversationId,
+            "textContent": textContent
+        ])
+    }
+
+    func stopMonitoring(conversationId: String) {
+        emitEvent("parent:stop_monitor", data: [
             "conversationId": conversationId
         ])
     }
 
-    // MARK: - Private
+    func endConversationAsParent(parentUserId: String, conversationId: String) {
+        emitEvent("parent:end_conversation", data: [
+            "parentUserId": parentUserId,
+            "conversationId": conversationId
+        ])
+    }
 
-    private func send(event: String, data: [String: String]) {
-        let payload: [String: Any] = [
-            "event": event,
-            "data": data
-        ]
+    func getActiveSessions(parentUserId: String) {
+        emitEvent("parent:get_active_sessions", data: [
+            "parentUserId": parentUserId
+        ])
+    }
 
+    // MARK: - Socket.IO Protocol
+
+    /// Emit a Socket.IO event: "42[\"eventName\",{data}]"
+    private func emitEvent(_ event: String, data: [String: Any]) {
+        let payload: [Any] = [event, data]
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload),
-              let jsonString = String(data: jsonData, encoding: .utf8) else { return }
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            print("WebSocket: Failed to serialize event \(event)")
+            return
+        }
+        // Prepend "42" for Socket.IO event type
+        sendRaw("42\(jsonString)")
+    }
 
-        webSocket?.send(.string(jsonString)) { [weak self] error in
+    private func sendRaw(_ text: String) {
+        webSocket?.send(.string(text)) { [weak self] error in
             if let error {
-                self?.onError?(error.localizedDescription)
+                print("WebSocket send error: \(error.localizedDescription)")
+                self?.onConversationError?(error.localizedDescription)
             }
         }
     }
+
+    // MARK: - Receive & Parse
 
     private func receiveMessages() {
         webSocket?.receive { [weak self] result in
@@ -127,10 +188,10 @@ final class WebSocketClient {
             case .success(let message):
                 switch message {
                 case .string(let text):
-                    self.handleMessage(text)
+                    self.handleRawMessage(text)
                 case .data(let data):
                     if let text = String(data: data, encoding: .utf8) {
-                        self.handleMessage(text)
+                        self.handleRawMessage(text)
                     }
                 @unknown default:
                     break
@@ -139,52 +200,181 @@ final class WebSocketClient {
                 self.receiveMessages()
 
             case .failure(let error):
-                self.connectionState = .error(error.localizedDescription)
+                Task { @MainActor in
+                    self.connectionState = .error(error.localizedDescription)
+                }
             }
         }
     }
 
-    private func handleMessage(_ text: String) {
-        guard let data = text.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let event = json["event"] as? String,
-              let eventData = json["data"] as? [String: Any] else { return }
+    private func handleRawMessage(_ raw: String) {
+        // Engine.IO message types:
+        // 0 = open (contains session info)
+        // 2 = ping
+        // 3 = pong
+        // 4 = Socket.IO message
+        guard let firstChar = raw.first else { return }
+
+        switch firstChar {
+        case "0":
+            // Engine.IO open packet — extract sid and setup ping
+            handleOpen(raw)
+
+        case "2":
+            // Engine.IO ping — respond with pong
+            sendRaw("3")
+
+        case "3":
+            // Engine.IO pong — ignore
+            break
+
+        case "4":
+            // Socket.IO packet — parse the sub-type
+            let socketIOPayload = String(raw.dropFirst())
+            handleSocketIOPacket(socketIOPayload)
+
+        default:
+            print("WebSocket: Unknown EIO packet: \(raw.prefix(20))")
+        }
+    }
+
+    private func handleOpen(_ raw: String) {
+        // Parse: 0{"sid":"xxx","upgrades":[],"pingInterval":25000,"pingTimeout":20000}
+        let jsonPart = String(raw.dropFirst())
+        guard let data = jsonPart.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+
+        sid = json["sid"] as? String
+        let pingInterval = (json["pingInterval"] as? Int) ?? 25000
+
+        // Send Socket.IO connect packet: "40"
+        sendRaw("40")
+
+        // Start ping timer
+        startPingTimer(interval: TimeInterval(pingInterval) / 1000.0)
+    }
+
+    private func handleSocketIOPacket(_ packet: String) {
+        guard let firstChar = packet.first else { return }
+
+        switch firstChar {
+        case "0":
+            // Socket.IO connect acknowledgment
+            Task { @MainActor in
+                self.connectionState = .connected
+            }
+            print("WebSocket: Connected to Socket.IO")
+
+        case "1":
+            // Socket.IO disconnect
+            Task { @MainActor in
+                self.connectionState = .disconnected
+            }
+
+        case "2":
+            // Socket.IO event: "2[\"eventName\",{data}]"
+            let eventPayload = String(packet.dropFirst())
+            handleEvent(eventPayload)
+
+        case "4":
+            // Socket.IO connect error
+            let errorPayload = String(packet.dropFirst())
+            print("WebSocket: Socket.IO connect error: \(errorPayload)")
+            Task { @MainActor in
+                self.connectionState = .error("Connection rejected")
+            }
+
+        default:
+            break
+        }
+    }
+
+    private func handleEvent(_ payload: String) {
+        guard let data = payload.data(using: .utf8),
+              let array = try? JSONSerialization.jsonObject(with: data) as? [Any],
+              let eventName = array.first as? String else {
+            print("WebSocket: Failed to parse event: \(payload.prefix(100))")
+            return
+        }
+
+        let eventData = array.count > 1 ? array[1] as? [String: Any] ?? [:] : [:]
 
         Task { @MainActor in
-            switch event {
-            case "voice:transcription":
-                let transcription = eventData["text"] as? String ?? ""
-                let isFinal = eventData["isFinal"] as? Bool ?? false
-                self.onTranscription?(transcription, isFinal)
+            self.routeEvent(eventName, data: eventData)
+        }
+    }
 
-            case "avatar:response_text":
-                let responseText = eventData["text"] as? String ?? ""
-                let emotion = eventData["emotion"] as? String ?? "neutral"
-                self.onAvatarResponseText?(responseText, emotion)
+    private func routeEvent(_ event: String, data: [String: Any]) {
+        switch event {
+        // ── Conversation Events ──────────────
+        case "conversation:joined":
+            let conversationId = data["conversationId"] as? String ?? ""
+            onConversationJoined?(conversationId)
 
-            case "avatar:response_audio":
-                let audioUrl = eventData["audioUrl"] as? String ?? ""
-                let duration = eventData["duration"] as? Double ?? 0
-                self.onAvatarResponseAudio?(audioUrl, duration)
+        case "conversation:processing":
+            let status = data["status"] as? String ?? ""
+            onConversationProcessing?(status)
 
-            case "parent:intervention_delivered":
-                break
+        case "conversation:response":
+            onConversationResponse?(data)
 
-            case "parent:live_transcript":
-                break
+        case "conversation:parent_intervention":
+            let id = data["id"] as? String ?? ""
+            let textContent = data["textContent"] as? String ?? ""
+            onParentIntervention?(id, textContent)
 
-            case "conversation:ended":
-                if let summaryData = try? JSONSerialization.data(withJSONObject: eventData) {
-                    self.onConversationEnded?(summaryData)
-                }
+        case "conversation:ended_by_parent":
+            onConversationEndedByParent?()
 
-            case "error":
-                let message = eventData["message"] as? String ?? "Unknown error"
-                self.onError?(message)
+        case "conversation:error":
+            let message = data["message"] as? String ?? "Unknown error"
+            onConversationError?(message)
 
-            default:
-                break
+        case "conversation:left":
+            break
+
+        // ── Parent Events ────────────────────
+        case "parent:monitor_started":
+            onMonitorStarted?(data)
+
+        case "parent:message_update":
+            onMessageUpdate?(data)
+
+        case "parent:intervention_sent":
+            onInterventionSent?(data)
+
+        case "parent:conversation_ended":
+            onParentConversationEnded?(data)
+
+        case "parent:active_sessions":
+            let sessions = data["sessions"] as? [[String: Any]] ?? []
+            onActiveSessions?(sessions)
+
+        case "parent:error":
+            let message = data["message"] as? String ?? "Unknown error"
+            onParentError?(message)
+
+        case "parent:monitor_stopped":
+            break
+
+        default:
+            print("WebSocket: Unhandled event: \(event)")
+        }
+    }
+
+    // MARK: - Ping/Pong
+
+    private func startPingTimer(interval: TimeInterval) {
+        stopPingTimer()
+        DispatchQueue.main.async { [weak self] in
+            self?.pingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+                self?.sendRaw("2")  // Engine.IO ping
             }
         }
+    }
+
+    private func stopPingTimer() {
+        pingTimer?.invalidate()
+        pingTimer = nil
     }
 }

@@ -2,53 +2,66 @@ import SwiftUI
 
 struct LiveMonitorView: View {
     let conversation: Conversation
-    @State private var viewModel: LiveMonitorViewModel
+    @Environment(AuthManager.self) private var authManager
+    @Environment(AppRouter.self) private var appRouter
+    @State private var viewModel: LiveMonitorViewModel?
+
+    private var L: AppLocale { appRouter.currentLocale }
 
     init(conversation: Conversation) {
         self.conversation = conversation
-        self._viewModel = State(initialValue: LiveMonitorViewModel(conversation: conversation))
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Live transcript
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
-                        ForEach(viewModel.messages) { message in
-                            LiveTranscriptBubble(message: message)
-                                .id(message.id)
+        Group {
+            if let viewModel {
+                VStack(spacing: 0) {
+                    // Live transcript
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+                                ForEach(viewModel.messages) { message in
+                                    LiveTranscriptBubble(message: message, locale: L)
+                                        .id(message.id)
+                                }
+                            }
+                            .padding()
                         }
+                        .onChange(of: viewModel.messages.count) { _, _ in
+                            if let lastId = viewModel.messages.last?.id {
+                                withAnimation {
+                                    proxy.scrollTo(lastId, anchor: .bottom)
+                                }
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    // Intervention input
+                    HStack(spacing: AppTheme.Spacing.sm) {
+                        TextField(L.sendGuidance, text: Binding(
+                            get: { viewModel.interventionText },
+                            set: { viewModel.interventionText = $0 }
+                        ))
+                            .textFieldStyle(.roundedBorder)
+
+                        Button {
+                            viewModel.sendIntervention()
+                        } label: {
+                            Image(systemName: "paperplane.fill")
+                                .foregroundStyle(AppTheme.Colors.primary)
+                        }
+                        .disabled(viewModel.interventionText.isEmpty)
                     }
                     .padding()
                 }
-                .onChange(of: viewModel.messages.count) { _, _ in
-                    if let lastId = viewModel.messages.last?.id {
-                        withAnimation {
-                            proxy.scrollTo(lastId, anchor: .bottom)
-                        }
-                    }
-                }
+            } else {
+                ProgressView(L.connecting)
             }
-
-            Divider()
-
-            // Intervention input
-            HStack(spacing: AppTheme.Spacing.sm) {
-                TextField("Send guidance to avatar...", text: $viewModel.interventionText)
-                    .textFieldStyle(.roundedBorder)
-
-                Button {
-                    viewModel.sendIntervention()
-                } label: {
-                    Image(systemName: "paperplane.fill")
-                        .foregroundStyle(AppTheme.Colors.primary)
-                }
-                .disabled(viewModel.interventionText.isEmpty)
-            }
-            .padding()
         }
-        .navigationTitle("Live Monitor")
+        .environment(\.layoutDirection, L.layoutDirection)
+        .navigationTitle(L.liveMonitor)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .status) {
@@ -56,19 +69,26 @@ struct LiveMonitorView: View {
                     Circle()
                         .fill(.red)
                         .frame(width: 8, height: 8)
-                    Text("LIVE")
+                    Text(L.live)
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
             }
         }
-        .onAppear { viewModel.startWatching() }
-        .onDisappear { viewModel.stopWatching() }
+        .onAppear {
+            if viewModel == nil {
+                let parentId = authManager.currentUser?.id ?? ""
+                viewModel = LiveMonitorViewModel(conversation: conversation, parentUserId: parentId)
+            }
+            viewModel?.startWatching()
+        }
+        .onDisappear { viewModel?.stopWatching() }
     }
 }
 
 struct LiveTranscriptBubble: View {
     let message: Message
+    let locale: AppLocale
 
     var body: some View {
         HStack {
@@ -94,9 +114,9 @@ struct LiveTranscriptBubble: View {
 
     private var roleName: String {
         switch message.role {
-        case .child: "Child"
-        case .avatar: "Avatar"
-        case .parentIntervention: "You (intervention)"
+        case .child: locale.childRole
+        case .avatar: locale.avatarRole
+        case .parentIntervention: locale.youIntervention
         default: ""
         }
     }

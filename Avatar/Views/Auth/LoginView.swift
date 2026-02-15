@@ -4,12 +4,15 @@ import GoogleSignIn
 
 struct LoginView: View {
     @Environment(AuthManager.self) private var authManager
+    @Environment(AppRouter.self) private var appRouter
     @Binding var showRegister: Bool
 
     @State private var email = ""
     @State private var password = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
+
+    private var L: AppLocale { appRouter.currentLocale }
 
     var body: some View {
         ScrollView {
@@ -27,7 +30,7 @@ struct LoginView: View {
                         .font(AppTheme.Fonts.title)
                         .foregroundStyle(.white)
 
-                    Text("Your child's AI best friend")
+                    Text(L.appTagline)
                         .font(AppTheme.Fonts.body)
                         .foregroundStyle(.white.opacity(0.8))
                 }
@@ -44,7 +47,7 @@ struct LoginView: View {
                         HStack(spacing: 10) {
                             Image(systemName: "apple.logo")
                                 .font(.system(size: 18, weight: .semibold))
-                            Text("Continue with Apple")
+                            Text(L.continueWithApple)
                                 .font(AppTheme.Fonts.bodyBold)
                         }
                         .frame(maxWidth: .infinity)
@@ -73,7 +76,7 @@ struct LoginView: View {
                                         )
                                     )
                             }
-                            Text("Continue with Google")
+                            Text(L.continueWithGoogle)
                                 .font(AppTheme.Fonts.bodyBold)
                         }
                         .frame(maxWidth: .infinity)
@@ -94,7 +97,7 @@ struct LoginView: View {
                     Rectangle()
                         .fill(.white.opacity(0.3))
                         .frame(height: 1)
-                    Text("or")
+                    Text(L.or)
                         .font(AppTheme.Fonts.caption)
                         .foregroundStyle(.white.opacity(0.6))
                         .padding(.horizontal, 12)
@@ -106,7 +109,7 @@ struct LoginView: View {
 
                 // Email Login Form
                 VStack(spacing: AppTheme.Spacing.md) {
-                    TextField("Email", text: $email)
+                    TextField(L.email, text: $email)
                         .textFieldStyle(.plain)
                         .padding()
                         .background(.white.opacity(0.2))
@@ -116,7 +119,7 @@ struct LoginView: View {
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
 
-                    SecureField("Password", text: $password)
+                    SecureField(L.password, text: $password)
                         .textFieldStyle(.plain)
                         .padding()
                         .background(.white.opacity(0.2))
@@ -138,7 +141,7 @@ struct LoginView: View {
                                 ProgressView()
                                     .tint(.purple)
                             } else {
-                                Text("Log In")
+                                Text(L.logIn)
                                     .font(AppTheme.Fonts.bodyBold)
                             }
                         }
@@ -153,7 +156,7 @@ struct LoginView: View {
                     Button {
                         withAnimation { showRegister = true }
                     } label: {
-                        Text("Don't have an account? **Sign Up**")
+                        Text(L.dontHaveAccount)
                             .font(AppTheme.Fonts.body)
                             .foregroundStyle(.white)
                     }
@@ -164,6 +167,7 @@ struct LoginView: View {
                     .frame(height: 40)
             }
         }
+        .environment(\.layoutDirection, L.layoutDirection)
         .scrollBounceBehavior(.basedOnSize)
         .background(AppTheme.Colors.backgroundGradient)
         .ignoresSafeArea()

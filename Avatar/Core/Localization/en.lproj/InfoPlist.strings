@@ -1,0 +1,3 @@
+/* Privacy usage descriptions */
+"NSMicrophoneUsageDescription" = "Avatar needs access to your microphone so your child can talk to their avatar friend.";
+"NSSpeechRecognitionUsageDescription" = "Avatar uses speech recognition to understand what your child says.";
