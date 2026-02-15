@@ -106,15 +106,9 @@ export async function conversationRoutes(fastify: FastifyInstance) {
         },
       });
 
-      // Generate opening message from avatar (using fast Haiku model)
-      const openingMessage = await conversationEngine.generateOpeningMessage({
-        conversationId: conversation.id,
-        child,
-        avatar: child.avatar,
-        mission,
-        locale,
-        systemPrompt,
-      });
+      // Generate a fast template-based opening message (no AI call needed for greetings)
+      const avatarName = child.avatar?.name || 'Buddy';
+      const openingMessage = generateFastOpeningMessage(child.name, avatarName, mission, locale);
 
       // Run TTS and DB save in parallel to minimize wait time
       let openingAudioUrl: string | null = null;
@@ -705,4 +699,57 @@ export async function conversationRoutes(fastify: FastifyInstance) {
       return reply.send({ summary: conversation.summary });
     },
   );
+}
+
+// ── Fast opening message templates (no AI call needed) ────────────
+
+interface OpeningResult {
+  text: string;
+  emotion: string;
+}
+
+function generateFastOpeningMessage(
+  childName: string,
+  avatarName: string,
+  mission: { titleHe: string; titleEn: string; theme: string } | null,
+  locale: string,
+): OpeningResult {
+  const isHebrew = locale === 'he';
+
+  if (mission) {
+    const missionTitle = isHebrew ? mission.titleHe : mission.titleEn;
+    // Mission-based greetings
+    const heTemplates = [
+      `היי ${childName}! זה אני, ${avatarName}! היום יוצאים להרפתקה מיוחדת - ${missionTitle}! מוכנים?`,
+      `${childName}! כל כך שמחתי שבאת! יש לנו משימה מדהימה היום - ${missionTitle}! בוא נתחיל!`,
+      `שלום ${childName}! ${avatarName} כאן! מוכנים ל${missionTitle}? זו הולכת להיות הרפתקה מטורפת!`,
+    ];
+    const enTemplates = [
+      `Hey ${childName}! It's me, ${avatarName}! Today we're going on a special adventure - ${missionTitle}! Ready?`,
+      `${childName}! I'm so happy you're here! We have an amazing mission today - ${missionTitle}! Let's go!`,
+      `Hi ${childName}! ${avatarName} here! Ready for ${missionTitle}? This is going to be an awesome adventure!`,
+    ];
+    const templates = isHebrew ? heTemplates : enTemplates;
+    return {
+      text: templates[Math.floor(Math.random() * templates.length)],
+      emotion: 'excited',
+    };
+  } else {
+    // Free-form greetings
+    const heTemplates = [
+      `היי ${childName}! זה אני, ${avatarName}! כל כך שמח לראות אותך! מה קורה היום?`,
+      `שלום ${childName}! ${avatarName} כאן! ספר לי, מה הדבר הכי מגניב שקרה לך היום?`,
+      `${childName}! איזה כיף שבאת! אני ${avatarName}. על מה נדבר היום?`,
+    ];
+    const enTemplates = [
+      `Hey ${childName}! It's me, ${avatarName}! So happy to see you! What's up today?`,
+      `Hi ${childName}! ${avatarName} here! Tell me, what's the coolest thing that happened to you today?`,
+      `${childName}! So glad you're here! I'm ${avatarName}. What shall we talk about today?`,
+    ];
+    const templates = isHebrew ? heTemplates : enTemplates;
+    return {
+      text: templates[Math.floor(Math.random() * templates.length)],
+      emotion: 'happy',
+    };
+  }
 }
