@@ -265,17 +265,22 @@ export class ConversationEngine {
     const messages: Anthropic.MessageParam[] = [];
 
     // Convert message history to Claude format
+    // Skip messages with empty content to avoid Anthropic API errors
     for (const msg of messageHistory) {
       if (msg.role === 'CHILD') {
-        messages.push({
-          role: 'user',
-          content: msg.textContent,
-        });
+        if (msg.textContent?.trim()) {
+          messages.push({
+            role: 'user',
+            content: msg.textContent,
+          });
+        }
       } else if (msg.role === 'AVATAR') {
-        messages.push({
-          role: 'assistant',
-          content: msg.textContent,
-        });
+        if (msg.textContent?.trim()) {
+          messages.push({
+            role: 'assistant',
+            content: msg.textContent,
+          });
+        }
       } else if (msg.role === 'PARENT_INTERVENTION') {
         // Parent interventions are injected as system-like context
         messages.push({
@@ -289,6 +294,26 @@ export class ConversationEngine {
       }
       // SYSTEM messages are part of the system prompt, not message history
     }
+
+    // Strip leading assistant messages (opening avatar greeting is in system prompt context)
+    while (messages.length > 0 && messages[0].role === 'assistant') {
+      messages.shift();
+    }
+
+    // Ensure strict user/assistant alternation (required by Anthropic API).
+    // Merge consecutive same-role messages with newline separator.
+    const merged: Anthropic.MessageParam[] = [];
+    for (const msg of messages) {
+      const last = merged[merged.length - 1];
+      if (last && last.role === msg.role) {
+        // Merge into previous message
+        last.content = `${last.content}\n${msg.content}`;
+      } else {
+        merged.push({ ...msg });
+      }
+    }
+    messages.length = 0;
+    messages.push(...merged);
 
     // Build the current user message with optional context
     let currentMessage = currentChildText;

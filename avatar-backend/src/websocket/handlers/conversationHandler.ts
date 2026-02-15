@@ -172,15 +172,20 @@ export function registerConversationHandler(
         });
 
         // Save messages to database
+        // Only save child message if transcription is non-empty (avoid empty messages in history)
+        const childMsgPromise = result.childTranscript.trim()
+          ? prisma.message.create({
+              data: {
+                conversationId,
+                role: 'CHILD',
+                textContent: result.childTranscript,
+                audioDuration: result.childAudioDuration,
+              },
+            })
+          : Promise.resolve(null);
+
         const [childMsg, avatarMsg] = await Promise.all([
-          prisma.message.create({
-            data: {
-              conversationId,
-              role: 'CHILD',
-              textContent: result.childTranscript,
-              audioDuration: result.childAudioDuration,
-            },
-          }),
+          childMsgPromise,
           prisma.message.create({
             data: {
               conversationId,
@@ -205,11 +210,13 @@ export function registerConversationHandler(
           : null;
         console.log(`[Voice] Emitting response to room ${conversationRoom}, hasAudio=${!!voiceAudioBase64}`);
         io.to(conversationRoom).emit('conversation:response', {
-          childMessage: {
-            id: childMsg.id,
-            textContent: result.childTranscript,
-            timestamp: childMsg.timestamp,
-          },
+          childMessage: childMsg
+            ? {
+                id: childMsg.id,
+                textContent: result.childTranscript,
+                timestamp: childMsg.timestamp,
+              }
+            : null,
           avatarMessage: {
             id: avatarMsg.id,
             textContent: result.avatarText,
@@ -225,11 +232,13 @@ export function registerConversationHandler(
         if (currentSession.isParentMonitoring && currentSession.parentSocketId) {
           io.to(currentSession.parentSocketId).emit('parent:message_update', {
             conversationId,
-            childMessage: {
-              id: childMsg.id,
-              textContent: result.childTranscript,
-              timestamp: childMsg.timestamp,
-            },
+            childMessage: childMsg
+              ? {
+                  id: childMsg.id,
+                  textContent: result.childTranscript,
+                  timestamp: childMsg.timestamp,
+                }
+              : null,
             avatarMessage: {
               id: avatarMsg.id,
               textContent: result.avatarText,
