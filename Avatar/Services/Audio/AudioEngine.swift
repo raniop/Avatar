@@ -20,6 +20,10 @@ final class AudioEngine {
 
     var onAudioChunkReady: ((Data) -> Void)?
     var onRecordingFinished: (() -> Void)?
+    /// Fires when TTS audio duration is known (after playback starts)
+    var onAudioDurationReady: ((TimeInterval) -> Void)?
+    /// Fires when TTS audio playback finishes
+    var onPlaybackComplete: (() -> Void)?
 
     init() {
         setupCallbacks()
@@ -44,6 +48,11 @@ final class AudioEngine {
         player.onPlaybackComplete = { [weak self] in
             self?.state = .idle
             self?.playbackAmplitude = 0
+            self?.onPlaybackComplete?()
+        }
+
+        player.onDurationReady = { [weak self] duration in
+            self?.onAudioDurationReady?(duration)
         }
     }
 

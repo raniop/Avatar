@@ -45,7 +45,7 @@ export class TextToSpeech {
       const voice = this.mapVoiceId(voiceId);
 
       const response = await openai.audio.speech.create({
-        model: 'tts-1',
+        model: 'tts-1-hd',
         voice,
         input: text,
         speed: Math.max(0.25, Math.min(4.0, speed)),

@@ -7,67 +7,33 @@ struct ConversationView: View {
 
     private var L: AppLocale { appRouter.currentLocale }
 
-    /// Whether the typewriter is currently animating an avatar response
-    private var isTypewriterActive: Bool {
-        viewModel.isTypewriting
-    }
-
-    /// The ID of the last avatar message (the one being typewritten)
-    private var typewriterMessageId: String? {
-        viewModel.messages.last(where: { $0.role == .avatar })?.id
-    }
-
     var body: some View {
         ZStack {
-            // Mission-themed background
             MissionBackgroundView(theme: viewModel.mission.theme)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Top bar with end button
                 ConversationTopBar(
                     locale: L,
+                    missionEmoji: viewModel.mission.emoji,
+                    missionTitle: viewModel.mission.title,
                     onEnd: {
-                        Task { await viewModel.endMission(userInitiated: true) }
+                        Task { await viewModel.endMission() }
                     }
                 )
 
-                // Small avatar at top
-                if let img = viewModel.avatarImage {
-                    AnimatedAvatarView(image: img, size: 100)
-                        .padding(.top, 8)
-                }
-
-                // Chat messages
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 12) {
                             ForEach(viewModel.messages) { message in
-                                // Skip the last avatar message if the typewriter
-                                // is currently animating it (to avoid duplicate)
-                                if isTypewriterActive && message.role == .avatar && message.id == typewriterMessageId {
-                                    EmptyView()
-                                } else {
-                                    ChatBubbleView(
-                                        text: message.textContent,
-                                        isChild: message.role == .child,
-                                        locale: L
-                                    )
-                                    .id(message.id)
-                                }
-                            }
-
-                            // Live typewriter text (current avatar response being typed)
-                            if isTypewriterActive && !viewModel.typewriterText.isEmpty {
-                                ChatBubbleView(
-                                    text: viewModel.typewriterText,
-                                    isChild: false,
+                                MessageRowView(
+                                    message: message,
+                                    viewModel: viewModel,
                                     locale: L
                                 )
-                                .id("typewriter")
+                                .id(message.id)
                             }
 
-                            // "Transcribing..." indicator
                             if !viewModel.currentTranscription.isEmpty {
                                 ChatBubbleView(
                                     text: viewModel.currentTranscription,
@@ -78,7 +44,6 @@ struct ConversationView: View {
                                 .id("transcription")
                             }
 
-                            // Avatar thinking indicator (only when AI is generating response)
                             if viewModel.isAvatarThinking {
                                 HStack {
                                     TypingIndicator()
@@ -89,16 +54,19 @@ struct ConversationView: View {
                             }
                         }
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
+                        .padding(.top, 32)
+                        .padding(.bottom, 8)
                     }
                     .onChange(of: viewModel.messages.count) { _, _ in
                         withAnimation {
                             proxy.scrollTo(viewModel.messages.last?.id, anchor: .bottom)
                         }
                     }
-                    .onChange(of: viewModel.typewriterText) { _, _ in
-                        withAnimation {
-                            proxy.scrollTo("typewriter", anchor: .bottom)
+                    .onChange(of: viewModel.typewriterVisibleWords) { _, _ in
+                        if let id = viewModel.typewriterMessageId {
+                            withAnimation(.easeOut(duration: 0.15)) {
+                                proxy.scrollTo(id, anchor: .bottom)
+                            }
                         }
                     }
                     .onChange(of: viewModel.isAvatarThinking) { _, thinking in
@@ -110,7 +78,6 @@ struct ConversationView: View {
                     }
                 }
 
-                // Chat input bar (text field + mic button)
                 ChatInputBar(
                     viewModel: viewModel,
                     locale: L
@@ -118,7 +85,6 @@ struct ConversationView: View {
                 .padding(.bottom, AppTheme.Spacing.sm)
             }
 
-            // Loading overlay — fun kid-friendly animation
             if viewModel.phase == .loading {
                 KidLoadingOverlay(
                     locale: L,
@@ -129,7 +95,6 @@ struct ConversationView: View {
                 )
             }
 
-            // Parent intervention indicator
             if viewModel.parentInterventionMessage != nil {
                 VStack {
                     Spacer()
@@ -161,29 +126,214 @@ struct ConversationView: View {
 
 }
 
+// MARK: - Message Row (handles typewriter + waiting states)
+
+struct MessageRowView: View {
+    let message: Message
+    let viewModel: ConversationViewModel
+    let locale: AppLocale
+
+    var body: some View {
+        if viewModel.isWaitingForAudio(messageId: message.id) {
+            // Typing dots while waiting for audio to arrive
+            HStack {
+                if let img = viewModel.friendImage {
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 28, height: 28)
+                        .clipShape(Circle())
+                }
+                TypingIndicator()
+                Spacer()
+            }
+        } else {
+            let visibleText = viewModel.visibleText(for: message)
+            ChatBubbleView(
+                text: message.textContent,
+                visibleText: visibleText,
+                isChild: message.role == .child,
+                locale: locale,
+                avatarImage: message.role == .avatar ? viewModel.friendImage : nil
+            )
+        }
+    }
+}
+
 // MARK: - Chat Bubble
 
 struct ChatBubbleView: View {
     let text: String
+    /// Partial text during typewriter (nil = show full text)
+    var visibleText: String? = nil
     let isChild: Bool
     let locale: AppLocale
+    var avatarImage: UIImage? = nil
+
+    private var bubbleColor: Color {
+        isChild ? AppTheme.Colors.primary : .white
+    }
+
+    /// Tail points toward the sender: trailing for child, leading for avatar.
+    /// In RTL layout the environment flips leading/trailing automatically.
+    private var tailEdge: BubbleTailShape.TailEdge {
+        isChild ? .trailing : .leading
+    }
+
+    private let tailWidth: CGFloat = 8
+
+    private var textColor: Color {
+        isChild ? .white : AppTheme.Colors.textPrimary
+    }
 
     var body: some View {
-        HStack {
+        HStack(alignment: .bottom, spacing: 6) {
             if isChild { Spacer(minLength: 60) }
 
+            // Avatar thumbnail for non-child messages
+            if !isChild, let img = avatarImage {
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 28, height: 28)
+                    .clipShape(Circle())
+            }
+
+            // Use full text for layout sizing; overlay visible portion during typewriter
             Text(text)
                 .font(.system(size: 16, weight: .regular, design: .rounded))
-                .foregroundStyle(isChild ? .white : AppTheme.Colors.textPrimary)
+                .foregroundStyle(visibleText != nil ? .clear : textColor)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(isChild ? AppTheme.Colors.primary : .white)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .shadow(color: .black.opacity(0.05), radius: 3, y: 2)
+                .padding(tailEdge == .trailing ? .trailing : .leading, tailWidth)
+                .overlay(alignment: .topLeading) {
+                    if let partial = visibleText {
+                        Text(partial)
+                            .font(.system(size: 16, weight: .regular, design: .rounded))
+                            .foregroundStyle(textColor)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .padding(tailEdge == .trailing ? .trailing : .leading, tailWidth)
+                    }
+                }
+                .background(
+                    BubbleTailShape(tailEdge: tailEdge)
+                        .fill(bubbleColor)
+                        .shadow(color: .black.opacity(0.05), radius: 3, y: 2)
+                )
 
             if !isChild { Spacer(minLength: 60) }
         }
         .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+}
+
+// MARK: - Bubble Shape with Tail
+
+struct BubbleTailShape: Shape {
+    enum TailEdge {
+        case leading, trailing
+    }
+
+    let tailEdge: TailEdge
+    let cornerRadius: CGFloat = 18
+
+    func path(in rect: CGRect) -> Path {
+        // Telegram/WhatsApp-style bubble: rounded rectangle with a visible tail
+        // at the bottom corner on the sender's side. The tail is drawn INSIDE
+        // the rect (ChatBubbleView adds padding on the tail side).
+        let r = cornerRadius
+        var path = Path()
+
+        switch tailEdge {
+        case .trailing:
+            // The tail is on the right side. The bubble body ends at (maxX - 8),
+            // and the tail fills the remaining 8pt on the right.
+            let bodyRight = rect.maxX - 8
+
+            // Top-left corner
+            path.move(to: CGPoint(x: rect.minX + r, y: rect.minY))
+            // Top edge
+            path.addLine(to: CGPoint(x: bodyRight - r, y: rect.minY))
+            // Top-right corner (of the body)
+            path.addQuadCurve(
+                to: CGPoint(x: bodyRight, y: rect.minY + r),
+                control: CGPoint(x: bodyRight, y: rect.minY)
+            )
+            // Right edge of body down to where tail starts
+            path.addLine(to: CGPoint(x: bodyRight, y: rect.maxY - 14))
+            // Tail: curves out to the right and down to a point, then back
+            path.addCurve(
+                to: CGPoint(x: rect.maxX, y: rect.maxY),
+                control1: CGPoint(x: bodyRight, y: rect.maxY - 4),
+                control2: CGPoint(x: rect.maxX, y: rect.maxY - 4)
+            )
+            // Tail tip curves back left along bottom
+            path.addCurve(
+                to: CGPoint(x: bodyRight - 6, y: rect.maxY - 2),
+                control1: CGPoint(x: rect.maxX - 1, y: rect.maxY + 1),
+                control2: CGPoint(x: bodyRight, y: rect.maxY)
+            )
+            // Bottom edge
+            path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY - 2))
+            // Bottom-left corner
+            path.addQuadCurve(
+                to: CGPoint(x: rect.minX, y: rect.maxY - 2 - r),
+                control: CGPoint(x: rect.minX, y: rect.maxY - 2)
+            )
+            // Left edge
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+            // Top-left corner
+            path.addQuadCurve(
+                to: CGPoint(x: rect.minX + r, y: rect.minY),
+                control: CGPoint(x: rect.minX, y: rect.minY)
+            )
+
+        case .leading:
+            // The tail is on the left side. The bubble body starts at (minX + 8).
+            let bodyLeft = rect.minX + 8
+
+            // Top-left corner (of the body)
+            path.move(to: CGPoint(x: bodyLeft + r, y: rect.minY))
+            // Top edge
+            path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+            // Top-right corner
+            path.addQuadCurve(
+                to: CGPoint(x: rect.maxX, y: rect.minY + r),
+                control: CGPoint(x: rect.maxX, y: rect.minY)
+            )
+            // Right edge
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - 2 - r))
+            // Bottom-right corner
+            path.addQuadCurve(
+                to: CGPoint(x: rect.maxX - r, y: rect.maxY - 2),
+                control: CGPoint(x: rect.maxX, y: rect.maxY - 2)
+            )
+            // Bottom edge to tail
+            path.addLine(to: CGPoint(x: bodyLeft + 6, y: rect.maxY - 2))
+            // Tail: curves left and down to a point
+            path.addCurve(
+                to: CGPoint(x: rect.minX, y: rect.maxY),
+                control1: CGPoint(x: bodyLeft, y: rect.maxY),
+                control2: CGPoint(x: rect.minX + 1, y: rect.maxY + 1)
+            )
+            // Tail tip curves back up along left edge
+            path.addCurve(
+                to: CGPoint(x: bodyLeft, y: rect.maxY - 14),
+                control1: CGPoint(x: rect.minX, y: rect.maxY - 4),
+                control2: CGPoint(x: bodyLeft, y: rect.maxY - 4)
+            )
+            // Left edge of body
+            path.addLine(to: CGPoint(x: bodyLeft, y: rect.minY + r))
+            // Top-left corner
+            path.addQuadCurve(
+                to: CGPoint(x: bodyLeft + r, y: rect.minY),
+                control: CGPoint(x: bodyLeft, y: rect.minY)
+            )
+        }
+
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -216,24 +366,40 @@ struct TypingIndicator: View {
 
 struct ConversationTopBar: View {
     let locale: AppLocale
+    var missionEmoji: String = ""
+    var missionTitle: String = ""
     let onEnd: () -> Void
 
     var body: some View {
         HStack {
-            Spacer()
-
             // End conversation button
             Button(action: onEnd) {
-                HStack(spacing: 6) {
-                    Text(locale == .hebrew ? "סיום" : "End")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(.white.opacity(0.2))
-                .clipShape(Capsule())
+                Text(locale == .hebrew ? "סיום" : "End")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.white.opacity(0.2))
+                    .clipShape(Capsule())
             }
+
+            Spacer()
+
+            // Mission title
+            HStack(spacing: 5) {
+                Text(missionEmoji)
+                    .font(.system(size: 18))
+                Text(missionTitle)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            // Invisible spacer to balance the end button
+            Color.clear
+                .frame(width: 70, height: 1)
         }
         .padding(.horizontal, AppTheme.Spacing.md)
         .padding(.top, AppTheme.Spacing.sm)
@@ -370,7 +536,6 @@ struct ChatInputBar: View {
             .padding(.vertical, 10)
             .background(Color.white)
             .clipShape(RoundedRectangle(cornerRadius: 22))
-            .environment(\.colorScheme, .light)
 
             // Send button (when text entered) OR Mic button (when empty)
             if hasText {

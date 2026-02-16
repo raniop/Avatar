@@ -22,10 +22,8 @@ final class ConversationViewModel {
     var avatarEmotion: Emotion = .happy
     var parentInterventionMessage: String?
 
-    /// Typewriter state -- character-by-character reveal of avatar messages
-    var typewriterText = ""
-    var isTypewriting = false
-    private var typewriterTask: Task<Void, Never>?
+    /// Whether audio is pending for the opening message (arrives via WebSocket after API response)
+    private var pendingOpeningAudioMessageId: String?
 
     var isListening: Bool { audioEngine.state == .listening }
     var isProcessing: Bool { audioEngine.state == .processing }
@@ -34,11 +32,26 @@ final class ConversationViewModel {
     /// Show avatar typing indicator only when AI is actually generating a response
     var isAvatarThinking = false
 
+    // MARK: - Typewriter State
+
+    /// ID of the message currently being typewritten (nil = no active typewriter)
+    var typewriterMessageId: String?
+    /// Number of words currently visible for the typewriter message
+    var typewriterVisibleWords: Int = 0
+    /// Whether the typewriter message is waiting for audio (show typing dots)
+    var typewriterWaitingForAudio = false
+    /// Timer that reveals words one by one
+    private var typewriterTimer: Timer?
+    /// Total word count for the current typewriter message
+    private var typewriterTotalWords: Int = 0
+
     // MARK: - Dependencies
 
     let audioEngine = AudioEngine()
     let animator = AvatarAnimator()
     var avatarImage: UIImage?
+    /// The friend/avatar character's preset image (shown next to chat bubbles)
+    var friendImage: UIImage?
     private let webSocket = WebSocketClient()
     private let apiClient = APIClient.shared
     private let avatarStorage = AvatarStorage.shared
@@ -49,6 +62,11 @@ final class ConversationViewModel {
     let mission: Mission
     private var conversationId: String?
     private var audioBuffer = Data()
+    /// Session start time for timing logs
+    private var sessionStartTime: CFAbsoluteTime = 0
+
+    /// If set, resume this existing conversation instead of creating a new one
+    private let existingConversationId: String?
 
     /// Base URL for resolving relative audio URLs from the backend
     private let backendBaseURL = "https://poetic-serenity-production-7de7.up.railway.app"
@@ -62,21 +80,54 @@ final class ConversationViewModel {
         return .english
     }
 
-    init(child: Child, mission: Mission) {
+    init(child: Child, mission: Mission, existingConversationId: String? = nil) {
         self.child = child
         self.mission = mission
+        self.existingConversationId = existingConversationId
         setupCallbacks()
     }
 
     // MARK: - Lifecycle
 
     func startMission() async {
+        // Load images immediately so KidLoadingOverlay shows the avatar right away
+        if let saved = await avatarStorage.loadAvatar(childId: child.id) {
+            avatarImage = saved.image
+        }
+        loadFriendImage()
+
+        // Route to resume flow if we have an existing conversation
+        if let existingId = existingConversationId {
+            await resumeConversation(id: existingId)
+            return
+        }
+
+        // Check for an existing ACTIVE conversation for this mission
+        // Only resume if the child actually participated (sent at least one message)
+        do {
+            if let active = try await apiClient.getActiveConversation(childId: child.id, missionId: mission.id) {
+                let transcript = try await apiClient.getConversationTranscript(conversationId: active.id)
+                let childSentMessage = transcript.messages.contains { $0.role == .child }
+                if childSentMessage {
+                    print("🔄 Resuming conversation \(active.id) — child has \(transcript.messages.filter { $0.role == .child }.count) messages")
+                    await resumeConversation(id: active.id)
+                    return
+                } else {
+                    print("🆕 Existing conversation \(active.id) has no child messages, starting fresh")
+                }
+            }
+        } catch {
+            print("⚠️ Failed to check for existing conversation: \(error)")
+        }
+
         phase = .loading
         let startTime = CFAbsoluteTimeGetCurrent()
+        sessionStartTime = startTime
 
         // Start WebSocket connection early (in parallel with API call)
         let token = KeychainManager.shared.getAccessToken()
         webSocket.connect(token: token)
+        print("🕐 [TIMING] WebSocket connect started: +\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms")
 
         // Load avatar image and create conversation in parallel
         async let conversationCreate = apiClient.createConversation(
@@ -85,21 +136,18 @@ final class ConversationViewModel {
             locale: appLocale
         )
 
-        // Load avatar image (fast, from local cache)
-        if let saved = await avatarStorage.loadAvatar(childId: child.id) {
-            avatarImage = saved.image
-        }
-        print("ConversationVM: [TIMING] Avatar loaded: +\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms")
+        print("🕐 [TIMING] API call started: +\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms")
 
         do {
             let response = try await conversationCreate
-            print("ConversationVM: [TIMING] API response: +\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms")
+            print("🕐 [TIMING] API response received: +\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms")
 
             let convId = response.conversation.id
             let openingText = response.openingMessage.textContent
             let openingAudioUrl = response.openingMessage.audioUrl
             // Decode inline base64 audio data if available
             let openingAudioData: Data? = response.openingMessage.audioData.flatMap { Data(base64Encoded: $0) }
+            print("ConversationVM: Opening audio: url=\(openingAudioUrl ?? "nil"), inlineDataSize=\(openingAudioData?.count ?? 0), hasAudioData=\(response.openingMessage.audioData != nil)")
 
             // Add the opening message from the avatar
             let opening = response.openingMessage
@@ -117,25 +165,40 @@ final class ConversationViewModel {
             )
 
             conversationId = convId
-
-            // Prepare typewriter BEFORE showing the message to prevent full-text flash.
-            if !openingText.isEmpty {
-                typewriterText = ""
-                isTypewriting = true
-            }
             messages.append(openingMsg)
 
-            // Show the conversation immediately — don't wait for WebSocket!
-            // The greeting text + typewriter can start while WebSocket connects in background.
-            phase = .intro
-            print("ConversationVM: [TIMING] Phase -> intro: +\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms")
+            // Play audio if available inline, otherwise stay on loading screen until audio arrives
+            if let openingAudioData, !openingAudioData.isEmpty {
+                // Audio available now — go to active immediately with synced typewriter
+                beginTypewriterWait(messageId: opening.id, text: openingText)
+                phase = .active
+                audioEngine.playResponse(data: openingAudioData, emotion: openingEmotion)
+                print("🕐 [TIMING] Phase -> active (inline audio): +\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms")
+            } else if let openingAudioUrl, !openingAudioUrl.isEmpty {
+                let fullUrl = openingAudioUrl.hasPrefix("http") ? openingAudioUrl : "\(backendBaseURL)\(openingAudioUrl)"
+                if let url = URL(string: fullUrl) {
+                    beginTypewriterWait(messageId: opening.id, text: openingText)
+                    phase = .active
+                    audioEngine.playResponseFromURL(url, emotion: openingEmotion)
+                    print("🕐 [TIMING] Phase -> active (audio URL): +\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms")
+                }
+            } else {
+                // Audio will arrive via WebSocket — STAY ON LOADING SCREEN
+                pendingOpeningAudioMessageId = opening.id
+                beginTypewriterWait(messageId: opening.id, text: openingText)
+                print("🕐 [TIMING] Waiting for WebSocket audio (staying on loading screen): +\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms")
 
-            // Start typewriter immediately (without audio — audio arrives via WebSocket)
-            if !openingText.isEmpty {
-                startTypewriter(fullText: openingText, audioUrl: openingAudioUrl, audioData: openingAudioData, emotion: openingEmotion)
+                // Safety: if audio doesn't arrive within 20s, go to active anyway
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(20))
+                    guard let self, self.phase == .loading else { return }
+                    print("🕐 [TIMING] Safety timeout — going to active without audio")
+                    self.stopTypewriter()
+                    self.phase = .active
+                }
             }
 
-            // Connect WebSocket in background while typewriter runs
+            // Connect WebSocket in background
             Task { @MainActor in
                 do {
                     try await self.waitForConnection(timeout: 8.0)
@@ -153,15 +216,137 @@ final class ConversationViewModel {
                 }
             }
 
-            // Wait for typewriter/TTS to finish before moving to active
-            let wordCount = openingText.split(separator: " ").count
-            let waitDuration = max(2.0, Double(wordCount) / 2.5 + 0.5)
-            try await Task.sleep(for: .seconds(waitDuration))
-            phase = .active
-            print("ConversationVM: [TIMING] Phase -> active: +\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms")
-
         } catch {
             print("ConversationVM: Error starting mission: \(error)")
+            phase = .error(error.localizedDescription)
+        }
+    }
+
+    /// Resume an existing ACTIVE conversation — load transcript and reconnect WebSocket.
+    private func resumeConversation(id convId: String) async {
+        phase = .loading
+        let startTime = CFAbsoluteTimeGetCurrent()
+
+        // Start WebSocket connection early (in parallel)
+        let token = KeychainManager.shared.getAccessToken()
+        webSocket.connect(token: token)
+
+        // Load transcript (avatar images already loaded in startMission)
+        async let transcriptFetch = apiClient.getConversationTranscript(conversationId: convId)
+
+        do {
+            let transcript = try await transcriptFetch
+            print("ConversationVM: [RESUME] Loaded \(transcript.messages.count) messages (+\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms)")
+
+            conversationId = convId
+            messages = transcript.messages
+
+            // Go straight to active (no intro/typewriter for resumed conversations)
+            phase = .active
+
+            // Connect WebSocket and join room
+            Task { @MainActor in
+                do {
+                    try await self.waitForConnection(timeout: 8.0)
+                    print("ConversationVM: [RESUME] WebSocket connected: +\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms")
+
+                    self.webSocket.joinConversation(
+                        conversationId: convId,
+                        childId: self.child.id,
+                        parentUserId: self.child.parentId,
+                        locale: self.appLocale.rawValue
+                    )
+                    print("ConversationVM: [RESUME] Joined room: +\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms")
+                } catch {
+                    print("ConversationVM: [RESUME] WebSocket connection failed: \(error)")
+                }
+            }
+
+        } catch {
+            print("ConversationVM: [RESUME] Error resuming conversation: \(error)")
+            // Fall back to creating a new conversation
+            await startNewConversation()
+        }
+    }
+
+    /// Create a new conversation (used as fallback when resume fails).
+    private func startNewConversation() async {
+        phase = .loading
+        let startTime = CFAbsoluteTimeGetCurrent()
+
+        let token = KeychainManager.shared.getAccessToken()
+        if webSocket.connectionState != .connected {
+            webSocket.connect(token: token)
+        }
+
+        do {
+            let response = try await apiClient.createConversation(
+                childId: child.id,
+                missionId: mission.id,
+                locale: appLocale
+            )
+
+            let convId = response.conversation.id
+            let openingText = response.openingMessage.textContent
+            let openingAudioUrl = response.openingMessage.audioUrl
+            let openingAudioData: Data? = response.openingMessage.audioData.flatMap { Data(base64Encoded: $0) }
+
+            let opening = response.openingMessage
+            let openingEmotion = opening.emotion.flatMap { Emotion(rawValue: $0) } ?? .happy
+            let openingMsg = Message(
+                id: opening.id,
+                conversationId: response.conversation.id,
+                role: .avatar,
+                textContent: opening.textContent,
+                audioUrl: openingAudioUrl,
+                audioDuration: nil,
+                emotion: openingEmotion,
+                isParentIntervention: false,
+                timestamp: opening.timestamp
+            )
+
+            conversationId = convId
+            messages.append(openingMsg)
+
+            if let openingAudioData, !openingAudioData.isEmpty {
+                beginTypewriterWait(messageId: opening.id, text: opening.textContent)
+                phase = .active
+                audioEngine.playResponse(data: openingAudioData, emotion: openingEmotion)
+            } else if let openingAudioUrl, !openingAudioUrl.isEmpty {
+                let fullUrl = openingAudioUrl.hasPrefix("http") ? openingAudioUrl : "\(backendBaseURL)\(openingAudioUrl)"
+                if let url = URL(string: fullUrl) {
+                    beginTypewriterWait(messageId: opening.id, text: opening.textContent)
+                    phase = .active
+                    audioEngine.playResponseFromURL(url, emotion: openingEmotion)
+                }
+            } else {
+                pendingOpeningAudioMessageId = opening.id
+                beginTypewriterWait(messageId: opening.id, text: opening.textContent)
+                // Stay on loading screen — audio will arrive via WebSocket
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(20))
+                    guard let self, self.phase == .loading else { return }
+                    self.stopTypewriter()
+                    self.phase = .active
+                }
+            }
+
+            Task { @MainActor in
+                do {
+                    try await self.waitForConnection(timeout: 8.0)
+                    self.webSocket.joinConversation(
+                        conversationId: convId,
+                        childId: self.child.id,
+                        parentUserId: self.child.parentId,
+                        locale: self.appLocale.rawValue
+                    )
+                } catch {
+                    print("ConversationVM: WebSocket connection failed: \(error)")
+                }
+            }
+
+        } catch {
+            print("ConversationVM: Error starting mission (fallback): \(error)")
             phase = .error(error.localizedDescription)
         }
     }
@@ -182,16 +367,19 @@ final class ConversationViewModel {
         audioEngine.stopListening()
     }
 
-    /// End the conversation and dismiss.
-    func endMission(userInitiated: Bool = false) async {
-        // Clean up audio & socket first (fast)
+    /// Leave the conversation and dismiss.
+    /// By default, the conversation stays ACTIVE on the backend so the child can resume later.
+    /// Pass `endConversation: true` when the parent explicitly ends it.
+    func endMission(endConversation: Bool = false) async {
+        // Clean up audio, typewriter & socket first (fast)
+        stopTypewriter()
         audioEngine.reset()
         webSocket.leaveConversation()
 
         phase = .dismissed
 
-        // End conversation on backend in background (don't block UI)
-        if let conversationId {
+        // Only mark COMPLETED on backend when explicitly requested (parent ended it)
+        if endConversation, let conversationId {
             Task.detached { [apiClient] in
                 _ = try? await apiClient.endConversation(id: conversationId)
             }
@@ -270,6 +458,24 @@ final class ConversationViewModel {
         // Lip-sync during playback
         audioEngine.player.onAmplitudeUpdate = { [weak self] amplitude in
             self?.animator.updateLipSync(amplitude: amplitude)
+        }
+
+        audioEngine.onAudioDurationReady = { [weak self] duration in
+            guard let self else { return }
+            let elapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - self.sessionStartTime) * 1000)
+            print("🕐 [TIMING] Audio playback starting: +\(elapsed)ms, duration=\(String(format: "%.2f", duration))s, typewriterActive=\(self.typewriterMessageId != nil)")
+            // Audio just started playing — begin synced typewriter reveal
+            if self.typewriterMessageId != nil {
+                self.startTypewriterSynced(duration: duration)
+            }
+        }
+
+        // When audio playback completes, ensure all text is fully revealed
+        audioEngine.onPlaybackComplete = { [weak self] in
+            guard let self else { return }
+            let elapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - self.sessionStartTime) * 1000)
+            print("🕐 [TIMING] Audio playback complete: +\(elapsed)ms")
+            self.stopTypewriter()
         }
 
         // MARK: Socket.IO Event Callbacks
@@ -368,8 +574,16 @@ final class ConversationViewModel {
                 }
                 print("ConversationVM: Avatar response - emotion=\(emotionStr), audioUrl=\(audioUrl ?? "nil"), hasInlineAudio=\(inlineAudioData != nil), text=\(avatarText.prefix(60))")
 
-                // Start typewriter + TTS (prefer inline audio data over URL download)
-                self.startTypewriter(fullText: avatarText, audioUrl: audioUrl, audioData: inlineAudioData, emotion: emotion)
+                // Start typewriter + play audio. If audio is available, typewriter will sync via onAudioDurationReady.
+                // If no audio at all, just reveal text immediately.
+                let hasAudio = (inlineAudioData != nil && !inlineAudioData!.isEmpty) || (audioUrl != nil && !audioUrl!.isEmpty)
+                if hasAudio {
+                    self.beginTypewriterWait(messageId: avatarId, text: avatarText)
+                    self.playAvatarAudio(audioUrl: audioUrl, audioData: inlineAudioData, emotion: emotion)
+                } else {
+                    // No audio — just show text instantly
+                    self.audioEngine.state = .idle
+                }
             } else {
                 // No avatar message in response -- reset to idle so mic works again
                 print("ConversationVM: No avatarMessage in response, resetting to idle")
@@ -377,37 +591,35 @@ final class ConversationViewModel {
             }
         }
 
-        // Audio data arrives separately (after text response) for faster perceived response
+        // Audio arrives separately (e.g., opening message audio via WebSocket)
         webSocket.onConversationAudio = { [weak self] data in
             guard let self else { return }
             let messageId = data["messageId"] as? String
-            print("ConversationVM: Received audio for message \(messageId ?? "?"), engineState=\(self.audioEngine.state)")
+            let elapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - self.sessionStartTime) * 1000)
+            print("🕐 [TIMING] Audio arrived via WebSocket: +\(elapsed)ms, messageId=\(messageId ?? "?"), engineState=\(self.audioEngine.state)")
 
-            // Don't play audio if user already started a new interaction
-            guard self.audioEngine.state == .idle else {
+            // Only play if engine is idle (not already playing something else)
+            let isOpeningAudio = self.pendingOpeningAudioMessageId != nil
+            guard self.audioEngine.state == .idle || isOpeningAudio else {
                 print("ConversationVM: Skipping audio — engine busy (\(self.audioEngine.state))")
                 return
             }
+            self.pendingOpeningAudioMessageId = nil
 
-            // Decode base64 audio
             var audioData: Data?
             if let b64 = data["audioData"] as? String {
                 audioData = Data(base64Encoded: b64)
-                print("ConversationVM: Decoded audio base64, size=\(audioData?.count ?? 0)")
+            }
+            let audioUrl = data["audioUrl"] as? String
+
+            // If still on loading screen (waiting for opening audio), transition to active now
+            if isOpeningAudio && self.phase == .loading {
+                self.phase = .active
+                print("🕐 [TIMING] Phase -> active (audio arrived): +\(elapsed)ms")
             }
 
-            if let audioData, !audioData.isEmpty {
-                let emotion = self.avatarEmotion
-                print("ConversationVM: Playing TTS audio (\(audioData.count) bytes)")
-                self.audioEngine.playResponse(data: audioData, emotion: emotion)
-            } else if let audioUrl = data["audioUrl"] as? String, !audioUrl.isEmpty {
-                let fullUrl = audioUrl.hasPrefix("http") ? audioUrl : "\(self.backendBaseURL)\(audioUrl)"
-                if let url = URL(string: fullUrl) {
-                    let emotion = self.avatarEmotion
-                    print("ConversationVM: Downloading TTS from: \(fullUrl)")
-                    self.audioEngine.playResponseFromURL(url, emotion: emotion)
-                }
-            }
+            // Audio will trigger synced typewriter reveal via onAudioDurationReady callback
+            self.playAvatarAudio(audioUrl: audioUrl, audioData: audioData, emotion: self.avatarEmotion)
         }
 
         webSocket.onParentIntervention = { [weak self] id, textContent in
@@ -418,7 +630,7 @@ final class ConversationViewModel {
         }
 
         webSocket.onConversationEndedByParent = { [weak self] in
-            Task { await self?.endMission(userInitiated: true) }
+            Task { await self?.endMission(endConversation: true) }
         }
 
         webSocket.onConversationError = { [weak self] error in
@@ -431,54 +643,35 @@ final class ConversationViewModel {
         }
     }
 
-    // MARK: - Typewriter Animation
+    // MARK: - Audio Playback
 
-    private func startTypewriter(fullText: String, audioUrl: String?, audioData: Data? = nil, emotion: Emotion) {
-        typewriterTask?.cancel()
-        typewriterText = ""
-        isTypewriting = true
-
-        // Start TTS playback — prefer inline audio data over URL download
+    /// Play avatar TTS audio. Text is already shown in the message bubble — this just plays audio.
+    private func playAvatarAudio(audioUrl: String?, audioData: Data?, emotion: Emotion) {
         if let audioData, !audioData.isEmpty {
-            // Play directly from inline data (fastest, no network roundtrip)
-            print("ConversationVM: Playing TTS from inline audio data (\(audioData.count) bytes)")
+            print("ConversationVM: Playing inline audio (\(audioData.count) bytes)")
             audioEngine.playResponse(data: audioData, emotion: emotion)
         } else if let audioUrl, !audioUrl.isEmpty {
-            // Fall back to downloading from URL
             let fullUrl = audioUrl.hasPrefix("http") ? audioUrl : "\(backendBaseURL)\(audioUrl)"
             if let url = URL(string: fullUrl) {
-                print("ConversationVM: Starting TTS download from: \(fullUrl)")
+                print("ConversationVM: Playing audio from URL: \(fullUrl)")
                 audioEngine.playResponseFromURL(url, emotion: emotion)
             } else {
-                print("ConversationVM: Invalid TTS URL: \(fullUrl)")
                 audioEngine.state = .idle
             }
         } else {
-            print("ConversationVM: No audio URL and no inline data -- text-only mode")
+            // No audio available
             audioEngine.state = .idle
-        }
-
-        guard !fullText.isEmpty else {
-            isTypewriting = false
-            return
-        }
-
-        // Estimate TTS duration: ~2.5 words/sec for children's speech
-        let wordCount = fullText.split(separator: " ").count
-        let estimatedDuration = max(2.0, Double(wordCount) / 2.5)
-        let charDelay = max(20, Int((estimatedDuration / Double(fullText.count)) * 1000))
-
-        typewriterTask = Task { @MainActor in
-            for char in fullText {
-                if Task.isCancelled { break }
-                typewriterText.append(char)
-                try? await Task.sleep(for: .milliseconds(charDelay))
-            }
-            isTypewriting = false
         }
     }
 
     // MARK: - Helpers
+
+    /// Load the friend character's preset image from the app bundle
+    private func loadFriendImage() {
+        if let presetId = UserDefaults.standard.object(forKey: "friend_preset_\(child.id)") as? Int {
+            friendImage = UIImage(named: "avatar_preset_\(presetId)")
+        }
+    }
 
     private func waitForConnection(timeout: TimeInterval) async throws {
         let deadline = Date().addingTimeInterval(timeout)
@@ -524,7 +717,11 @@ final class ConversationViewModel {
                             let emotion = msg.emotion ?? .happy
                             self.avatarEmotion = emotion
                             self.animator.transitionToEmotion(emotion)
-                            self.startTypewriter(fullText: msg.textContent, audioUrl: audioUrl, emotion: emotion)
+                            let hasAudio = audioUrl != nil && !audioUrl!.isEmpty
+                            if hasAudio {
+                                self.beginTypewriterWait(messageId: msg.id, text: msg.textContent)
+                            }
+                            self.playAvatarAudio(audioUrl: audioUrl, audioData: nil, emotion: emotion)
                         }
                     }
                     return // Got messages, stop polling
@@ -545,6 +742,85 @@ final class ConversationViewModel {
             }
         }
         print("ConversationVM: Polling exhausted, no missed messages found")
+    }
+
+    // MARK: - Typewriter
+
+    /// Start typewriter for a message. Shows typing dots until audio arrives,
+    /// then reveals words synced to the audio duration.
+    private func beginTypewriterWait(messageId: String, text: String) {
+        stopTypewriter()
+        let words = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        typewriterTotalWords = words.count
+        typewriterVisibleWords = 0
+        typewriterMessageId = messageId
+        typewriterWaitingForAudio = true
+        print("⏳ Typewriter: Waiting for audio — messageId=\(messageId), words=\(words.count)")
+
+        // Safety timeout: if audio never arrives, show full text after 15s
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(15))
+            guard let self, self.typewriterMessageId == messageId else { return }
+            print("⏳ Typewriter: Safety timeout — forcing full text for \(messageId)")
+            self.stopTypewriter()
+        }
+    }
+
+    /// Audio just started playing — begin revealing words synced to the duration.
+    private func startTypewriterSynced(duration: TimeInterval) {
+        guard typewriterMessageId != nil else { return }
+        typewriterWaitingForAudio = false
+
+        // Show first word immediately
+        typewriterVisibleWords = max(typewriterVisibleWords, 1)
+
+        let wordsLeft = typewriterTotalWords - typewriterVisibleWords
+        guard wordsLeft > 0 else {
+            stopTypewriter()
+            return
+        }
+
+        // Distribute remaining words across 90% of audio duration
+        let effectiveDuration = duration * 0.90
+        let interval = max(0.05, effectiveDuration / Double(wordsLeft))
+        print("⏳ Typewriter: Synced start — \(wordsLeft) words over \(String(format: "%.2f", effectiveDuration))s, interval=\(String(format: "%.0f", interval * 1000))ms")
+
+        typewriterTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            self.typewriterVisibleWords += 1
+            if self.typewriterVisibleWords >= self.typewriterTotalWords {
+                timer.invalidate()
+                self.typewriterTimer = nil
+                print("⏳ Typewriter: All words revealed")
+            }
+        }
+    }
+
+    /// Immediately show all remaining text and clean up typewriter state.
+    private func stopTypewriter() {
+        typewriterTimer?.invalidate()
+        typewriterTimer = nil
+        typewriterMessageId = nil
+        typewriterVisibleWords = 0
+        typewriterTotalWords = 0
+        typewriterWaitingForAudio = false
+    }
+
+    /// Returns the visible text for a message, respecting the typewriter state.
+    /// Returns nil when the message should show its full text (not being typewritten).
+    func visibleText(for message: Message) -> String? {
+        guard message.id == typewriterMessageId else { return nil }
+        if typewriterWaitingForAudio { return nil } // show typing dots
+        let words = message.textContent.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        let count = min(typewriterVisibleWords, words.count)
+        if count >= words.count { return nil } // all words visible — show full text
+        if count == 0 { return " " } // at least a space so bubble renders
+        return words.prefix(count).joined(separator: " ")
+    }
+
+    /// Whether a message should show typing dots (waiting for audio).
+    func isWaitingForAudio(messageId: String) -> Bool {
+        messageId == typewriterMessageId && typewriterWaitingForAudio
     }
 
     /// Send a text message typed by the child via keyboard
