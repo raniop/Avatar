@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import prisma from '../../config/prisma';
 import { ConversationEngine } from '../../services/conversation-engine/ConversationEngine';
@@ -96,28 +97,34 @@ export async function conversationRoutes(fastify: FastifyInstance) {
       });
 
       // Generate opening message text (sync, fast — template-based, no AI)
-      const avatarName = child.avatar?.name || 'Buddy';
+      const avatarName = child.avatar?.name && child.avatar.name !== 'default'
+        ? child.avatar.name
+        : undefined;
       const openingMessage = generateFastOpeningMessage(child.name, avatarName, mission, locale);
 
-      // Create conversation + opening message in DB (sequential, message needs conversation.id)
+      // Create conversation + opening message in a single transaction for speed
       const t1 = Date.now();
-      const conversation = await prisma.conversation.create({
-        data: {
-          childId,
-          missionId: missionId || null,
-          locale,
-          systemPrompt,
-          status: 'ACTIVE',
-        },
-      });
-      const avatarMessage = await prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          role: 'AVATAR',
-          textContent: openingMessage.text,
-          emotion: openingMessage.emotion,
-        },
-      });
+      const conversationId = randomUUID();
+      const [conversation, avatarMessage] = await prisma.$transaction([
+        prisma.conversation.create({
+          data: {
+            id: conversationId,
+            childId,
+            missionId: missionId || null,
+            locale,
+            systemPrompt,
+            status: 'ACTIVE',
+          },
+        }),
+        prisma.message.create({
+          data: {
+            conversationId,
+            role: 'AVATAR',
+            textContent: openingMessage.text,
+            emotion: openingMessage.emotion,
+          },
+        }),
+      ]);
       console.log(`[TIMING] Conversation+Message DB: ${Date.now() - t1}ms (total: ${Date.now() - t0}ms)`);
 
       // Return immediately with text — TTS will be sent via WebSocket later
@@ -720,24 +727,27 @@ interface OpeningResult {
 
 function generateFastOpeningMessage(
   childName: string,
-  avatarName: string,
+  avatarName: string | undefined,
   mission: { titleHe: string; titleEn: string; theme: string } | null,
   locale: string,
 ): OpeningResult {
   const isHebrew = locale === 'he';
+  // If the child gave their avatar a name, use "Hi childName! I'm avatarName!" style
+  const intro = avatarName
+    ? (isHebrew ? `היי ${childName}! זה אני, ${avatarName}!` : `Hey ${childName}! It's me, ${avatarName}!`)
+    : (isHebrew ? `היי ${childName}!` : `Hey ${childName}!`);
 
   if (mission) {
     const missionTitle = isHebrew ? mission.titleHe : mission.titleEn;
-    // Mission-based greetings
     const heTemplates = [
-      `היי ${childName}! זה אני, ${avatarName}! היום יוצאים להרפתקה מיוחדת - ${missionTitle}! מוכנים?`,
-      `${childName}! כל כך שמחתי שבאת! יש לנו משימה מדהימה היום - ${missionTitle}! בוא נתחיל!`,
-      `שלום ${childName}! ${avatarName} כאן! מוכנים ל${missionTitle}? זו הולכת להיות הרפתקה מטורפת!`,
+      `${intro} היום יוצאים להרפתקה מיוחדת - ${missionTitle}! מוכנים?`,
+      `${intro} יש לנו משימה מדהימה היום - ${missionTitle}! בוא נתחיל!`,
+      `${intro} מוכנים ל${missionTitle}? זו הולכת להיות הרפתקה מטורפת!`,
     ];
     const enTemplates = [
-      `Hey ${childName}! It's me, ${avatarName}! Today we're going on a special adventure - ${missionTitle}! Ready?`,
-      `${childName}! I'm so happy you're here! We have an amazing mission today - ${missionTitle}! Let's go!`,
-      `Hi ${childName}! ${avatarName} here! Ready for ${missionTitle}? This is going to be an awesome adventure!`,
+      `${intro} Today we're going on a special adventure - ${missionTitle}! Ready?`,
+      `${intro} We have an amazing mission today - ${missionTitle}! Let's go!`,
+      `${intro} Ready for ${missionTitle}? This is going to be an awesome adventure!`,
     ];
     const templates = isHebrew ? heTemplates : enTemplates;
     return {
@@ -745,16 +755,15 @@ function generateFastOpeningMessage(
       emotion: 'excited',
     };
   } else {
-    // Free-form greetings
     const heTemplates = [
-      `היי ${childName}! זה אני, ${avatarName}! כל כך שמח לראות אותך! מה קורה היום?`,
-      `שלום ${childName}! ${avatarName} כאן! ספר לי, מה הדבר הכי מגניב שקרה לך היום?`,
-      `${childName}! איזה כיף שבאת! אני ${avatarName}. על מה נדבר היום?`,
+      `${intro} כל כך שמח לראות אותך! מה קורה היום?`,
+      `${intro} ספר לי, מה הדבר הכי מגניב שקרה לך היום?`,
+      `${intro} איזה כיף שבאת! על מה נדבר היום?`,
     ];
     const enTemplates = [
-      `Hey ${childName}! It's me, ${avatarName}! So happy to see you! What's up today?`,
-      `Hi ${childName}! ${avatarName} here! Tell me, what's the coolest thing that happened to you today?`,
-      `${childName}! So glad you're here! I'm ${avatarName}. What shall we talk about today?`,
+      `${intro} So happy to see you! What's up today?`,
+      `${intro} Tell me, what's the coolest thing that happened to you today?`,
+      `${intro} So glad you're here! What shall we talk about today?`,
     ];
     const templates = isHebrew ? heTemplates : enTemplates;
     return {

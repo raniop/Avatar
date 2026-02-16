@@ -121,7 +121,8 @@ struct ConversationView: View {
             // Loading overlay — fun kid-friendly animation
             if viewModel.phase == .loading {
                 KidLoadingOverlay(
-                    text: L.gettingReady,
+                    locale: L,
+                    missionTitle: viewModel.mission.title,
                     emoji: viewModel.mission.emoji,
                     avatarImage: viewModel.avatarImage,
                     theme: viewModel.mission.theme
@@ -510,18 +511,23 @@ struct MissionBackgroundView: View {
 // MARK: - Kid-Friendly Loading Animation
 
 struct KidLoadingOverlay: View {
-    let text: String
+    let locale: AppLocale
+    let missionTitle: String
     let emoji: String
     let avatarImage: UIImage?
     let theme: String
 
-    @State private var bounce = false
-    @State private var spin = false
-    @State private var showSparkles = false
-    @State private var dotCount = 0
     @State private var floatOffset: CGFloat = 0
-    @State private var emojiScale: CGFloat = 0.3
-    @State private var textOpacity: Double = 0
+    @State private var avatarScale: CGFloat = 0.3
+    @State private var showContent = false
+    @State private var showSparkles = false
+    @State private var progress: CGFloat = 0
+    @State private var textIndex = 0
+    @State private var pulseRing = false
+
+    private var loadingTexts: [String] {
+        [locale.gettingReady, locale.preparingAdventure, locale.almostThere]
+    }
 
     private var themeColors: [Color] {
         switch theme {
@@ -541,7 +547,7 @@ struct KidLoadingOverlay: View {
 
     var body: some View {
         ZStack {
-            // Theme-matching gradient background
+            // Theme gradient background
             LinearGradient(
                 colors: themeColors,
                 startPoint: .topLeading,
@@ -549,139 +555,211 @@ struct KidLoadingOverlay: View {
             )
             .ignoresSafeArea()
 
-            // Floating sparkle particles
-            ForEach(0..<6, id: \.self) { i in
-                SparkleParticle(index: i, isActive: showSparkles)
+            // Floating sparkles
+            ForEach(0..<8, id: \.self) { i in
+                FloatingSparkle(index: i, isActive: showSparkles)
             }
 
-            VStack(spacing: 30) {
+            VStack(spacing: 0) {
                 Spacer()
 
-                // Avatar image with gentle float
-                if let img = avatarImage {
-                    Image(uiImage: img)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 120, height: 120)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 3))
-                        .shadow(color: .white.opacity(0.3), radius: 12, y: 0)
-                        .offset(y: floatOffset)
-                }
+                // Avatar with glowing ring
+                ZStack {
+                    // Pulsing glow ring
+                    Circle()
+                        .stroke(
+                            .white.opacity(0.3),
+                            lineWidth: 4
+                        )
+                        .frame(width: 160, height: 160)
+                        .scaleEffect(pulseRing ? 1.15 : 1.0)
+                        .opacity(pulseRing ? 0.0 : 0.6)
 
-                // Big bouncing mission emoji
-                Text(emoji)
-                    .font(.system(size: 72))
-                    .scaleEffect(emojiScale)
-                    .offset(y: bounce ? -12 : 12)
-                    .shadow(color: .black.opacity(0.15), radius: 4, y: 3)
+                    Circle()
+                        .stroke(
+                            .white.opacity(0.2),
+                            lineWidth: 3
+                        )
+                        .frame(width: 150, height: 150)
 
-                // Animated dots text
-                Text(text)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .opacity(textOpacity)
-                    .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
-
-                // Bouncing dots
-                HStack(spacing: 8) {
-                    ForEach(0..<3, id: \.self) { i in
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 10, height: 10)
-                            .offset(y: dotCount % 3 == i ? -8 : 4)
-                            .animation(
-                                .easeInOut(duration: 0.35),
-                                value: dotCount
+                    if let img = avatarImage {
+                        Image(uiImage: img)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 140, height: 140)
+                            .clipShape(Circle())
+                            .overlay(
+                                Circle()
+                                    .stroke(.white.opacity(0.8), lineWidth: 3)
                             )
+                            .shadow(color: .white.opacity(0.4), radius: 20, y: 0)
                     }
                 }
-                .opacity(textOpacity)
+                .scaleEffect(avatarScale)
+                .offset(y: floatOffset)
+
+                Spacer().frame(height: 28)
+
+                // Mission emoji
+                Text(emoji)
+                    .font(.system(size: 56))
+                    .opacity(showContent ? 1 : 0)
+                    .scaleEffect(showContent ? 1 : 0.5)
+
+                Spacer().frame(height: 16)
+
+                // Mission title
+                Text(missionTitle)
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .opacity(showContent ? 1 : 0)
+                    .offset(y: showContent ? 0 : 10)
+                    .padding(.horizontal, 32)
+
+                Spacer().frame(height: 32)
+
+                // Progress bar
+                VStack(spacing: 12) {
+                    // Animated status text
+                    Text(loadingTexts[textIndex])
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .contentTransition(.numericText())
+                        .animation(.easeInOut(duration: 0.3), value: textIndex)
+
+                    // Progress track
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(.white.opacity(0.2))
+                            .frame(height: 8)
+
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [.white, .white.opacity(0.8)],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: max(8, progress * (UIScreen.main.bounds.width - 120)), height: 8)
+
+                        // Star marker at the leading edge of progress
+                        HStack(spacing: 0) {
+                            Spacer()
+                                .frame(width: max(0, progress * (UIScreen.main.bounds.width - 120) - 8))
+                            Text("⭐")
+                                .font(.system(size: 16))
+                                .offset(y: -1)
+                        }
+                    }
+                    .frame(maxWidth: UIScreen.main.bounds.width - 120)
+                }
+                .opacity(showContent ? 1 : 0)
+                .padding(.horizontal, 40)
 
                 Spacer()
                 Spacer()
             }
         }
-        .onAppear {
-            // Emoji pop-in
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) {
-                emojiScale = 1.0
-            }
+        .onAppear { startAnimations() }
+    }
 
-            // Text fade in
-            withAnimation(.easeIn(duration: 0.4).delay(0.2)) {
-                textOpacity = 1
-            }
+    private func startAnimations() {
+        // Avatar pop-in with spring
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+            avatarScale = 1.0
+        }
 
-            // Continuous emoji bounce
-            withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
-                bounce = true
-            }
+        // Content fade in
+        withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
+            showContent = true
+        }
 
-            // Gentle avatar float
-            withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-                floatOffset = -8
-            }
+        // Sparkles
+        withAnimation(.easeIn(duration: 0.3).delay(0.4)) {
+            showSparkles = true
+        }
 
-            // Sparkles
-            withAnimation(.easeIn(duration: 0.3).delay(0.3)) {
-                showSparkles = true
-            }
+        // Gentle avatar float
+        withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
+            floatOffset = -10
+        }
 
-            // Animated dots
-            Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
-                dotCount += 1
+        // Pulsing ring
+        withAnimation(.easeOut(duration: 1.5).repeatForever(autoreverses: false)) {
+            pulseRing = true
+        }
+
+        // Progress bar animation (fills over ~6s to cover typical load time)
+        withAnimation(.easeInOut(duration: 6.0)) {
+            progress = 0.9
+        }
+
+        // Cycle through loading texts
+        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { timer in
+            withAnimation {
+                textIndex = min(textIndex + 1, loadingTexts.count - 1)
+            }
+            if textIndex >= loadingTexts.count - 1 {
+                timer.invalidate()
             }
         }
     }
 }
 
-/// A single sparkle that floats and fades around the screen
-private struct SparkleParticle: View {
+/// Floating sparkle particles scattered across the screen
+private struct FloatingSparkle: View {
     let index: Int
     let isActive: Bool
 
     @State private var opacity: Double = 0
     @State private var yOffset: CGFloat = 0
-    @State private var scale: CGFloat = 0.5
+    @State private var scale: CGFloat = 0.4
+    @State private var rotation: Double = 0
 
-    private var sparkleEmoji: String {
-        ["✨", "⭐", "💫", "🌟", "✨", "⭐"][index % 6]
+    private var sparkle: String {
+        ["✨", "⭐", "💫", "🌟", "✨", "⭐", "🌟", "💫"][index % 8]
     }
 
-    private var xPosition: CGFloat {
-        let positions: [CGFloat] = [0.15, 0.85, 0.25, 0.75, 0.5, 0.6]
-        return UIScreen.main.bounds.width * positions[index % 6]
+    private var size: CGFloat {
+        [18, 14, 22, 16, 20, 12, 24, 15][index % 8]
     }
 
-    private var yBase: CGFloat {
-        let positions: [CGFloat] = [0.15, 0.2, 0.7, 0.75, 0.4, 0.55]
-        return UIScreen.main.bounds.height * positions[index % 6]
+    private var xPos: CGFloat {
+        let positions: [CGFloat] = [0.12, 0.88, 0.22, 0.78, 0.45, 0.65, 0.35, 0.55]
+        return UIScreen.main.bounds.width * positions[index % 8]
+    }
+
+    private var yPos: CGFloat {
+        let positions: [CGFloat] = [0.12, 0.18, 0.65, 0.72, 0.35, 0.50, 0.82, 0.28]
+        return UIScreen.main.bounds.height * positions[index % 8]
     }
 
     var body: some View {
-        Text(sparkleEmoji)
-            .font(.system(size: CGFloat([20, 16, 24, 18, 22, 14][index % 6])))
+        Text(sparkle)
+            .font(.system(size: size))
             .opacity(opacity)
             .scaleEffect(scale)
+            .rotationEffect(.degrees(rotation))
             .offset(y: yOffset)
-            .position(x: xPosition, y: yBase)
+            .position(x: xPos, y: yPos)
             .onAppear {
                 guard isActive else { return }
-                startAnimation()
+                animate()
             }
             .onChange(of: isActive) { _, active in
-                if active { startAnimation() }
+                if active { animate() }
             }
     }
 
-    private func startAnimation() {
-        let delay = Double(index) * 0.2
-        // Fade in + float up
-        withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true).delay(delay)) {
-            opacity = 0.9
-            yOffset = -20
-            scale = 1.1
+    private func animate() {
+        let delay = Double(index) * 0.15
+        withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true).delay(delay)) {
+            opacity = 0.8
+            yOffset = -25
+            scale = 1.0
+            rotation = Double([-15, 15, -10, 20, -20, 10, -15, 25][index % 8])
         }
     }
 }

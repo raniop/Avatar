@@ -104,6 +104,11 @@ final class APIClient: Sendable {
         return wrapper.avatar
     }
 
+    func setAvatarName(childId: String, name: String, voiceId: String? = nil) async throws {
+        struct NameBody: Encodable { let name: String; let voiceId: String? }
+        let _: AvatarWrapper = try await patch("/avatars/child/\(childId)/name", body: NameBody(name: name, voiceId: voiceId))
+    }
+
     // MARK: - Missions
 
     func getMissions(age: Int? = nil, locale: String = "en", interests: [String]? = nil) async throws -> [Mission] {

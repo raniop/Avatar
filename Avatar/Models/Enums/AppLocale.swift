@@ -83,9 +83,57 @@ enum AppLocale: String, Codable, CaseIterable {
     var changeAvatar: String { self == .hebrew ? "שנה אווטאר" : "Change Avatar" }
     var createAvatar: String { self == .hebrew ? "צור את האווטאר שלך!" : "Create Your Avatar!" }
     var letsGo: String { self == .hebrew ? "יאללה!" : "Let's Go!" }
-    var chooseYourMission: String { self == .hebrew ? "בחר משימה" : "Choose Your Mission" }
+    func chooseYourMission(gender: String? = nil) -> String {
+        if self == .hebrew {
+            switch gender?.lowercased() {
+            case "girl": return "בחרי משימה"
+            default: return "בחר משימה"
+            }
+        }
+        return "Choose Your Mission"
+    }
     var noMissions: String { self == .hebrew ? "אין משימות זמינות כרגע" : "No missions available right now" }
     var gettingReady: String { self == .hebrew ? "מתכוננים..." : "Getting ready..." }
+    var preparingAdventure: String { self == .hebrew ? "מכינים את ההרפתקה..." : "Preparing the adventure..." }
+    var almostThere: String { self == .hebrew ? "עוד רגע יוצאים!" : "Almost there!" }
+
+    // MARK: - Avatar Setup (child first-time)
+    func chooseYourFriend(gender: String? = nil) -> String {
+        if self == .hebrew {
+            switch gender?.lowercased() {
+            case "girl": return "בחרי את החברה שלך!"
+            default: return "בחר את החבר שלך!"
+            }
+        }
+        return "Choose your friend!"
+    }
+    func meetYourFriend(gender: String? = nil) -> String {
+        if self == .hebrew {
+            switch gender?.lowercased() {
+            case "girl": return "הנה החברה החדשה שלך!"
+            default: return "הנה החבר החדש שלך!"
+            }
+        }
+        return "Meet your new friend!"
+    }
+    func avatarIntro(avatarName: String, childName: String, gender: String? = nil) -> String {
+        if self == .hebrew {
+            switch gender?.lowercased() {
+            case "girl": return "היי \(childName)! אני \(avatarName)!\nבואי נצא להרפתקאות ביחד!"
+            default: return "היי \(childName)! אני \(avatarName)!\nבוא נצא להרפתקאות ביחד!"
+            }
+        }
+        return "Hey \(childName)! I'm \(avatarName)!\nLet's go on adventures together!"
+    }
+    func newFriendReady(gender: String? = nil) -> String {
+        if self == .hebrew {
+            switch gender?.lowercased() {
+            case "girl": return "היא תמיד תהיה פה בשבילך ✨"
+            default: return "הוא תמיד יהיה פה בשבילך ✨"
+            }
+        }
+        return "They'll always be here for you ✨"
+    }
 
     // MARK: - Mission Card
 
@@ -259,4 +307,49 @@ enum AppLocale: String, Codable, CaseIterable {
     var exampleQ1: String { self == .hebrew ? "איך היה היום שלך בבית הספר?" : "How was your day at school?" }
     var exampleQ2: String { self == .hebrew ? "מישהו הפריע לך היום?" : "Did anyone bother you today?" }
     var exampleQ3: String { self == .hebrew ? "מה שימח אותך היום?" : "What made you happy today?" }
+
+    // MARK: - Onboarding
+
+    var onboardingWelcomeTitle: String {
+        self == .hebrew ? "ברוכים הבאים לאווטאר!" : "Welcome to Avatar!"
+    }
+    var onboardingWelcomeSubtitle: String {
+        self == .hebrew
+            ? "החבר הכי טוב של הילד שלך.\nאווטאר AI שמדבר, מקשיב ומלווה."
+            : "Your child's AI best friend.\nAn avatar that talks, listens, and guides."
+    }
+
+    var onboardingSafeConversationsTitle: String {
+        self == .hebrew ? "שיחות בטוחות" : "Safe Conversations"
+    }
+    var onboardingSafeConversationsSubtitle: String {
+        self == .hebrew
+            ? "הילד מדבר עם האווטאר בקול.\nהשיחות בטוחות, חמות ומותאמות אישית."
+            : "Your child talks to their avatar by voice.\nConversations are safe, warm, and personalized."
+    }
+
+    var onboardingAdventuresTitle: String {
+        self == .hebrew ? "הרפתקאות ומשימות" : "Adventures & Missions"
+    }
+    var onboardingAdventuresSubtitle: String {
+        self == .hebrew
+            ? "משימות מהנות שמעודדות סקרנות,\nיצירתיות וביטוי עצמי."
+            : "Fun missions that encourage curiosity,\ncreativity, and self-expression."
+    }
+
+    var onboardingParentDashboardTitle: String {
+        self == .hebrew ? "לוח בקרה להורים" : "Parent Dashboard"
+    }
+    var onboardingParentDashboardSubtitle: String {
+        self == .hebrew
+            ? "עקבו אחרי השיחות, קבלו תובנות\nוכוונו את האווטאר בזמן אמת."
+            : "Follow conversations, get insights,\nand guide the avatar in real time."
+    }
+
+    var onboardingGetStarted: String {
+        self == .hebrew ? "בואו נתחיל!" : "Get Started!"
+    }
+    var onboardingSkip: String {
+        self == .hebrew ? "דלג" : "Skip"
+    }
 }

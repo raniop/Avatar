@@ -52,7 +52,7 @@ struct ChildHomeView: View {
 
                         // Mission selection — always shown
                         VStack(spacing: AppTheme.Spacing.md) {
-                            Text(L.chooseYourMission)
+                            Text(L.chooseYourMission(gender: viewModel.child?.gender))
                                 .font(AppTheme.Fonts.childBody)
                                 .foregroundStyle(.white)
 

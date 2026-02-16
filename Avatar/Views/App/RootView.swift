@@ -4,6 +4,8 @@ struct RootView: View {
     @Environment(AuthManager.self) private var authManager
     @Environment(AppRouter.self) private var appRouter
 
+    @State private var hasSeenOnboarding = UserDefaults.standard.bool(forKey: "has_seen_onboarding")
+
     /// Show splash while auth is loading OR children haven't been fetched yet.
     private var showSplash: Bool {
         if case .loading = authManager.state { return true }
@@ -19,7 +21,16 @@ struct RootView: View {
                 case .loading:
                     Color.clear
                 case .unauthenticated:
-                    AuthFlowView()
+                    if hasSeenOnboarding {
+                        AuthFlowView()
+                    } else {
+                        OnboardingView {
+                            UserDefaults.standard.set(true, forKey: "has_seen_onboarding")
+                            withAnimation(.easeInOut(duration: 0.4)) {
+                                hasSeenOnboarding = true
+                            }
+                        }
+                    }
                 case .authenticated:
                     if let role = appRouter.activeRole {
                         switch role {

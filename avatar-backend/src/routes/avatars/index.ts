@@ -194,4 +194,58 @@ export async function avatarRoutes(fastify: FastifyInstance) {
       return reply.send({ avatar });
     },
   );
+
+  // ── Set avatar name (upsert — creates minimal avatar if none exists) ──
+  fastify.patch(
+    '/child/:childId/name',
+    async (
+      request: FastifyRequest<{
+        Params: { childId: string };
+        Body: { name: string; voiceId?: string };
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { childId } = request.params;
+      const { name, voiceId } = request.body;
+
+      if (!name || typeof name !== 'string' || name.length > 50) {
+        return reply.status(400).send({
+          error: true,
+          statusCode: 400,
+          message: 'Name is required (max 50 chars)',
+        });
+      }
+
+      // Verify child belongs to user
+      const child = await prisma.child.findFirst({
+        where: { id: childId, parentId: request.user.userId },
+      });
+
+      if (!child) {
+        return reply.status(404).send({
+          error: true,
+          statusCode: 404,
+          message: 'Child not found',
+        });
+      }
+
+      // Upsert: update name (and voiceId if provided) if avatar exists, create minimal one if not
+      const avatar = await prisma.avatar.upsert({
+        where: { childId },
+        update: { name, ...(voiceId !== undefined && { voiceId }) },
+        create: {
+          childId,
+          name,
+          skinTone: 'default',
+          hairStyle: 'default',
+          hairColor: 'default',
+          eyeColor: 'default',
+          outfit: 'default',
+          ...(voiceId !== undefined && { voiceId }),
+        },
+      });
+
+      return reply.send({ avatar });
+    },
+  );
 }
