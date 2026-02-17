@@ -1,4 +1,4 @@
-import { Message, Child, Avatar, ParentQuestion } from '@prisma/client';
+import { Message, Child, Avatar, ParentQuestion, ParentGuidance } from '@prisma/client';
 import { SpeechToText } from './SpeechToText';
 import { TextToSpeech } from './TextToSpeech';
 import { ConversationEngine } from '../conversation-engine/ConversationEngine';
@@ -19,6 +19,8 @@ export interface VoiceMessageParams {
   child: Child & { avatar?: Avatar | null };
   avatar: Avatar | null;
   parentQuestions: ParentQuestion[];
+  parentGuidance?: ParentGuidance[];
+  runtimeGuidance?: string[];
   locale: string;
 }
 
@@ -72,6 +74,8 @@ export class VoicePipeline {
       child,
       avatar,
       parentQuestions,
+      parentGuidance,
+      runtimeGuidance,
       locale,
     } = params;
 
@@ -89,6 +93,7 @@ export class VoicePipeline {
         fallbackText,
         avatar?.voiceId || undefined,
         child.age,
+        locale,
       );
 
       return {
@@ -111,6 +116,8 @@ export class VoicePipeline {
       child,
       avatar,
       parentQuestions,
+      parentGuidance,
+      runtimeGuidance,
       locale,
     });
 
@@ -119,6 +126,7 @@ export class VoicePipeline {
       avatarResponse.text,
       avatar?.voiceId || undefined,
       child.age,
+      locale,
     );
 
     return {
@@ -141,12 +149,13 @@ export class VoicePipeline {
     text: string,
     voiceId?: string,
     childAge?: number,
+    locale: string = 'en',
   ): Promise<{
     audioUrl: string;
     audioBuffer: Buffer;
     audioDuration: number;
   }> {
-    const result = await this.tts.synthesizeForChild(text, voiceId, childAge);
+    const result = await this.tts.synthesizeForChild(text, voiceId, childAge, locale);
     return {
       audioUrl: result.audioUrl,
       audioBuffer: result.audioBuffer,

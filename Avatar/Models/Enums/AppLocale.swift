@@ -81,6 +81,7 @@ enum AppLocale: String, Codable, CaseIterable {
         return "Ready for an adventure?"
     }
     var changeAvatar: String { self == .hebrew ? "שנה אווטאר" : "Change Avatar" }
+    var changeFriend: String { self == .hebrew ? "החלף חבר" : "Change Friend" }
     var createAvatar: String { self == .hebrew ? "צור את האווטאר שלך!" : "Create Your Avatar!" }
     var letsGo: String { self == .hebrew ? "יאללה!" : "Let's Go!" }
     func chooseYourMission(gender: String? = nil) -> String {
@@ -98,6 +99,9 @@ enum AppLocale: String, Codable, CaseIterable {
     var almostThere: String { self == .hebrew ? "עוד רגע יוצאים!" : "Almost there!" }
 
     // MARK: - Avatar Setup (child first-time)
+    func heyChildName(_ name: String) -> String {
+        self == .hebrew ? "היי \(name)," : "Hey \(name),"
+    }
     func chooseYourFriend(gender: String? = nil) -> String {
         if self == .hebrew {
             switch gender?.lowercased() {
@@ -127,12 +131,9 @@ enum AppLocale: String, Codable, CaseIterable {
     }
     func newFriendReady(gender: String? = nil) -> String {
         if self == .hebrew {
-            switch gender?.lowercased() {
-            case "girl": return "היא תמיד תהיה פה בשבילך ✨"
-            default: return "הוא תמיד יהיה פה בשבילך ✨"
-            }
+            return "אני תמיד אהיה פה בשבילך ✨"
         }
-        return "They'll always be here for you ✨"
+        return "I'll always be here for you ✨"
     }
 
     // MARK: - Mission Card
@@ -148,6 +149,27 @@ enum AppLocale: String, Codable, CaseIterable {
     var greatJob: String { self == .hebrew ? "עבודה מעולה היום!" : "Great job today!" }
     var done: String { self == .hebrew ? "סיום" : "Done" }
     var parentWatching: String { self == .hebrew ? "הורה צופה" : "Parent is watching" }
+
+    // MARK: - Adventure Game
+
+    var adventureComplete: String { self == .hebrew ? "ההרפתקה הושלמה!" : "Adventure Complete!" }
+    var starsCollected: String { self == .hebrew ? "כוכבים" : "stars" }
+    func starsEarnedLabel(_ count: Int) -> String {
+        self == .hebrew ? "\(count) כוכבים" : "\(count) stars earned"
+    }
+    var typeHere: String { self == .hebrew ? "כתוב כאן..." : "Type here..." }
+
+    // MARK: - Mini-Games
+
+    var gameWatch: String { self == .hebrew ? "👀 צפה!" : "👀 Watch!" }
+    var gameYourTurn: String { self == .hebrew ? "👆 תורך!" : "👆 Your turn!" }
+    var gameNextRound: String { self == .hebrew ? "סיבוב הבא" : "Next Round" }
+    var gameContinue: String { self == .hebrew ? "המשך" : "Continue" }
+    func gameRoundLabel(_ current: Int, _ total: Int) -> String {
+        self == .hebrew ? "סיבוב \(current)/\(total)" : "Round \(current)/\(total)"
+    }
+    func gameTimerLabel(_ seconds: Int) -> String { "\(seconds)s" }
+    func gameScoreLabel(_ score: Int, _ threshold: Int) -> String { "\(score)/\(threshold)" }
 
     // MARK: - Avatar / Child Creation
 
@@ -307,6 +329,25 @@ enum AppLocale: String, Codable, CaseIterable {
     var exampleQ1: String { self == .hebrew ? "איך היה היום שלך בבית הספר?" : "How was your day at school?" }
     var exampleQ2: String { self == .hebrew ? "מישהו הפריע לך היום?" : "Did anyone bother you today?" }
     var exampleQ3: String { self == .hebrew ? "מה שימח אותך היום?" : "What made you happy today?" }
+
+    // MARK: - Parent Guidance
+
+    var guidance: String { self == .hebrew ? "הנחיה" : "Guidance" }
+    var guidanceTab: String { self == .hebrew ? "הנחיות" : "Guidance" }
+    var activeGuidance: String { self == .hebrew ? "הנחיות פעילות" : "Active Guidance" }
+    var guidanceFooter: String { self == .hebrew ? "ההנחיות ישפיעו על התנהגות האווטאר. הילד/ה לא יראה/תראה אותן." : "These instructions will influence the avatar's behavior. Your child won't see them." }
+    func guidanceFor(_ childName: String) -> String {
+        self == .hebrew ? "הנחיות עבור \(childName)" : "Guidance for \(childName)"
+    }
+    var addGuidance: String { self == .hebrew ? "הוסף הנחיה" : "Add Guidance" }
+    var guidanceHint: String { self == .hebrew ? "מה תרצה שהאווטאר יעשה?" : "What should the avatar do?" }
+    var guidanceExplanation: String { self == .hebrew ? "דוגמאות להנחיות:" : "Example instructions:" }
+    var exampleG1: String { self == .hebrew ? "עודד את הילד/ה לספר על החברים שלו/ה" : "Encourage the child to talk about their friends" }
+    var exampleG2: String { self == .hebrew ? "דבר איתו/ה על רגשות בצורה עדינה" : "Talk about emotions gently" }
+    var exampleG3: String { self == .hebrew ? "שאל אותו/ה על בית הספר בצורה כיפית" : "Ask about school in a fun way" }
+    var guideAvatar: String { self == .hebrew ? "הנחה אווטאר" : "Guide Avatar" }
+    var messageToChild: String { self == .hebrew ? "הודעה לילד/ה" : "Message to Child" }
+    var guidanceSent: String { self == .hebrew ? "הנחיה נשלחה" : "Guidance sent" }
 
     // MARK: - Onboarding
 

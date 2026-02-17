@@ -123,6 +123,9 @@ export function registerConversationHandler(
                   where: { isActive: true },
                   orderBy: { priority: 'desc' },
                 },
+                parentGuidance: {
+                  where: { isActive: true },
+                },
               },
             },
             messages: {
@@ -138,6 +141,9 @@ export function registerConversationHandler(
           });
           return;
         }
+
+        // Extract runtime guidance from contextWindow (set by parent:guidance event)
+        const runtimeGuidance = (conversation.contextWindow as any)?.runtimeGuidance as string[] | undefined;
 
         // Handle audio data from various sources:
         // - Native clients (iOS/Android) send base64 encoded string
@@ -175,6 +181,7 @@ export function registerConversationHandler(
             fallbackText,
             conversation.child.avatar?.voiceId || undefined,
             conversation.child.age,
+            locale,
           );
 
           const avatarMsg = await prisma.message.create({
@@ -212,8 +219,19 @@ export function registerConversationHandler(
           child: conversation.child,
           avatar: conversation.child.avatar,
           parentQuestions: conversation.child.parentQuestions,
+          parentGuidance: conversation.child.parentGuidance,
+          runtimeGuidance,
           locale,
+          hasMission: !!conversation.missionId,
         });
+
+        // Clear runtime guidance after use (one-shot)
+        if (runtimeGuidance?.length) {
+          prisma.conversation.update({
+            where: { id: conversationId },
+            data: { contextWindow: { ...(conversation.contextWindow as any || {}), runtimeGuidance: [] } },
+          }).catch(() => {});
+        }
 
         // ── Phase 3: Emit TEXT immediately (don't wait for TTS) ──
         // Save child + avatar messages to DB
@@ -255,6 +273,7 @@ export function registerConversationHandler(
             audioData: null, // Audio comes later
             emotion: avatarResponse.emotion,
             timestamp: avatarMsg.timestamp,
+            adventure: avatarResponse.adventure || null,
           },
         });
 
@@ -264,6 +283,7 @@ export function registerConversationHandler(
             avatarResponse.text,
             conversation.child.avatar?.voiceId || undefined,
             conversation.child.age,
+            locale,
           );
 
           // Update DB with audio URL
@@ -287,25 +307,71 @@ export function registerConversationHandler(
           console.error('[Voice] TTS generation failed:', ttsErr);
         }
 
-        // Broadcast to parent monitoring room
-        const currentSession = sessionManager.getBySocketId(socket.id) || session;
-        if (currentSession.isParentMonitoring && currentSession.parentSocketId) {
-          io.to(currentSession.parentSocketId).emit('parent:message_update', {
-            conversationId,
-            childMessage: {
-              id: childMsg.id,
-              textContent: transcription.text,
-              timestamp: childMsg.timestamp,
+        // Persist adventure state to contextWindow for resume capability
+        if (avatarResponse.adventure) {
+          prisma.conversation.update({
+            where: { id: conversationId },
+            data: {
+              contextWindow: {
+                ...(conversation.contextWindow as any || {}),
+                runtimeGuidance: [],
+                adventureState: {
+                  currentScene: avatarResponse.adventure.sceneIndex,
+                  starsCollected: avatarResponse.adventure.starsEarned,
+                  isComplete: avatarResponse.adventure.isAdventureComplete,
+                },
+              },
             },
-            avatarMessage: {
-              id: avatarMsg.id,
-              textContent: avatarResponse.text,
-              emotion: avatarResponse.emotion,
-              timestamp: avatarMsg.timestamp,
-            },
-            metadata: avatarResponse.metadata,
-          });
+          }).catch(() => {});
+
+          // Save adventure progress on completion
+          if (avatarResponse.adventure.isAdventureComplete && conversation.missionId) {
+            prisma.adventureProgress.upsert({
+              where: {
+                childId_missionId_depth: {
+                  childId: conversation.childId,
+                  missionId: conversation.missionId,
+                  depth: 1,
+                },
+              },
+              create: {
+                childId: conversation.childId,
+                missionId: conversation.missionId,
+                depth: 1,
+                starsEarned: avatarResponse.adventure.starsEarned,
+                collectibles: avatarResponse.adventure.collectible
+                  ? [avatarResponse.adventure.collectible]
+                  : [],
+                completedAt: new Date(),
+              },
+              update: {
+                starsEarned: avatarResponse.adventure.starsEarned,
+                collectibles: avatarResponse.adventure.collectible
+                  ? [avatarResponse.adventure.collectible]
+                  : [],
+                completedAt: new Date(),
+              },
+            }).catch((err) => console.error('[Adventure] Failed to save progress:', err));
+          }
         }
+
+        // Broadcast to all parent sockets monitoring this conversation
+        io.to(`parent:${conversationId}`).emit('parent:message_update', {
+          conversationId,
+          childMessage: {
+            id: childMsg.id,
+            textContent: transcription.text,
+            timestamp: childMsg.timestamp,
+          },
+          avatarMessage: {
+            id: avatarMsg.id,
+            textContent: avatarResponse.text,
+            emotion: avatarResponse.emotion,
+            timestamp: avatarMsg.timestamp,
+            adventure: avatarResponse.adventure || null,
+          },
+          metadata: avatarResponse.metadata,
+        });
       } catch (error) {
         console.error('[Voice] Error processing voice message:', error);
         // Try to emit error to room in case socket disconnected
@@ -364,6 +430,9 @@ export function registerConversationHandler(
                   where: { isActive: true },
                   orderBy: { priority: 'desc' },
                 },
+                parentGuidance: {
+                  where: { isActive: true },
+                },
               },
             },
             messages: {
@@ -379,6 +448,9 @@ export function registerConversationHandler(
           });
           return;
         }
+
+        // Extract runtime guidance from contextWindow (set by parent:guidance event)
+        const runtimeGuidance = (conversation.contextWindow as any)?.runtimeGuidance as string[] | undefined;
 
         // Save child message
         const childMsg = await prisma.message.create({
@@ -399,8 +471,19 @@ export function registerConversationHandler(
             child: conversation.child,
             avatar: conversation.child.avatar,
             parentQuestions: conversation.child.parentQuestions,
+            parentGuidance: conversation.child.parentGuidance,
+            runtimeGuidance,
             locale,
+            hasMission: !!conversation.missionId,
           });
+
+        // Clear runtime guidance after use (one-shot)
+        if (runtimeGuidance?.length) {
+          prisma.conversation.update({
+            where: { id: conversationId },
+            data: { contextWindow: { ...(conversation.contextWindow as any || {}), runtimeGuidance: [] } },
+          }).catch(() => {});
+        }
 
         // Save avatar message to DB immediately (without audio)
         const avatarMsg = await prisma.message.create({
@@ -430,6 +513,7 @@ export function registerConversationHandler(
             audioData: null,
             emotion: avatarResponse.emotion,
             timestamp: avatarMsg.timestamp,
+            adventure: avatarResponse.adventure || null,
           },
         });
 
@@ -439,6 +523,7 @@ export function registerConversationHandler(
             avatarResponse.text,
             conversation.child.avatar?.voiceId || undefined,
             conversation.child.age,
+            locale,
           );
 
           // Update DB with audio info
@@ -462,25 +547,71 @@ export function registerConversationHandler(
           console.error('[Text] TTS generation failed:', ttsErr);
         }
 
-        // Broadcast to parent monitoring
-        const currentSession = sessionManager.getBySocketId(socket.id) || session;
-        if (currentSession.isParentMonitoring && currentSession.parentSocketId) {
-          io.to(currentSession.parentSocketId).emit('parent:message_update', {
-            conversationId,
-            childMessage: {
-              id: childMsg.id,
-              textContent: childMsg.textContent,
-              timestamp: childMsg.timestamp,
+        // Persist adventure state to contextWindow for resume capability
+        if (avatarResponse.adventure) {
+          prisma.conversation.update({
+            where: { id: conversationId },
+            data: {
+              contextWindow: {
+                ...(conversation.contextWindow as any || {}),
+                runtimeGuidance: [],
+                adventureState: {
+                  currentScene: avatarResponse.adventure.sceneIndex,
+                  starsCollected: avatarResponse.adventure.starsEarned,
+                  isComplete: avatarResponse.adventure.isAdventureComplete,
+                },
+              },
             },
-            avatarMessage: {
-              id: avatarMsg.id,
-              textContent: avatarResponse.text,
-              emotion: avatarResponse.emotion,
-              timestamp: avatarMsg.timestamp,
-            },
-            metadata: avatarResponse.metadata,
-          });
+          }).catch(() => {});
+
+          // Save adventure progress on completion
+          if (avatarResponse.adventure.isAdventureComplete && conversation.missionId) {
+            prisma.adventureProgress.upsert({
+              where: {
+                childId_missionId_depth: {
+                  childId: conversation.childId,
+                  missionId: conversation.missionId,
+                  depth: 1,
+                },
+              },
+              create: {
+                childId: conversation.childId,
+                missionId: conversation.missionId,
+                depth: 1,
+                starsEarned: avatarResponse.adventure.starsEarned,
+                collectibles: avatarResponse.adventure.collectible
+                  ? [avatarResponse.adventure.collectible]
+                  : [],
+                completedAt: new Date(),
+              },
+              update: {
+                starsEarned: avatarResponse.adventure.starsEarned,
+                collectibles: avatarResponse.adventure.collectible
+                  ? [avatarResponse.adventure.collectible]
+                  : [],
+                completedAt: new Date(),
+              },
+            }).catch((err) => console.error('[Adventure] Failed to save progress:', err));
+          }
         }
+
+        // Broadcast to all parent sockets monitoring this conversation
+        io.to(`parent:${conversationId}`).emit('parent:message_update', {
+          conversationId,
+          childMessage: {
+            id: childMsg.id,
+            textContent: childMsg.textContent,
+            timestamp: childMsg.timestamp,
+          },
+          avatarMessage: {
+            id: avatarMsg.id,
+            textContent: avatarResponse.text,
+            emotion: avatarResponse.emotion,
+            timestamp: avatarMsg.timestamp,
+            adventure: avatarResponse.adventure || null,
+          },
+          metadata: avatarResponse.metadata,
+        });
       } catch (error) {
         console.error('Error processing text message:', error);
         try {

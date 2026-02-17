@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { Child, Avatar, MissionTemplate, ParentQuestion, Message } from '@prisma/client';
+import { Child, Avatar, MissionTemplate, ParentQuestion, ParentGuidance, Message } from '@prisma/client';
 import { PromptBuilder, PromptContext } from './PromptBuilder';
 import { SafetyFilter } from './SafetyFilter';
 import { QuestionWeaver } from './QuestionWeaver';
@@ -10,10 +10,35 @@ const anthropic = new Anthropic();
 // Types
 // ──────────────────────────────────────────────
 
+export interface AdventureChoice {
+  id: string;
+  emoji: string;
+  label: string;
+}
+
+export interface MiniGameConfig {
+  type: 'catch' | 'match' | 'sort' | 'sequence';
+  round: number;
+}
+
+export interface AdventureState {
+  sceneIndex: number;
+  sceneName: string;
+  sceneEmojis: string[];
+  interactionType: 'choice' | 'voice' | 'celebrate' | 'miniGame';
+  choices: AdventureChoice[] | null;
+  miniGame: MiniGameConfig | null;
+  starsEarned: number;
+  isSceneComplete: boolean;
+  isAdventureComplete: boolean;
+  collectible: { emoji: string; name: string } | null;
+}
+
 export interface AvatarResponse {
   text: string;
   emotion: string;
   metadata?: Record<string, unknown>;
+  adventure?: AdventureState;
 }
 
 export interface BuildSystemPromptParams {
@@ -21,6 +46,7 @@ export interface BuildSystemPromptParams {
   avatar: Avatar | null;
   mission: MissionTemplate | null;
   parentQuestions: ParentQuestion[];
+  parentGuidance: ParentGuidance[];
   locale: string;
 }
 
@@ -41,7 +67,10 @@ export interface ProcessMessageParams {
   child: Child;
   avatar: Avatar | null;
   parentQuestions: ParentQuestion[];
+  parentGuidance?: ParentGuidance[];
+  runtimeGuidance?: string[];
   locale: string;
+  hasMission?: boolean;
 }
 
 // ──────────────────────────────────────────────
@@ -78,6 +107,7 @@ export class ConversationEngine {
       avatar: params.avatar,
       mission: params.mission,
       parentQuestions: params.parentQuestions,
+      parentGuidance: params.parentGuidance || [],
       locale: params.locale,
     };
 
@@ -100,11 +130,12 @@ export class ConversationEngine {
       const missionTitle =
         locale === 'he' ? mission.titleHe : mission.titleEn;
       openingInstruction =
-        `Generate an exciting, warm opening message from ${avatarName} to ${child.name}. ` +
-        `You are starting a new mission called "${missionTitle}" (theme: ${mission.theme}). ` +
-        `Greet the child by name, introduce the mission theme in an engaging way, ` +
-        `and invite them on an adventure. Keep it to 2-3 short sentences. ` +
-        `Respond with JSON: {"text": "...", "emotion": "excited"}`;
+        `Generate the OPENING message for a new adventure called "${missionTitle}" (theme: ${mission.theme}). ` +
+        `Greet ${child.name} by name, set the scene dramatically, and get them excited for the game! ` +
+        `Keep text to 2-3 short exciting sentences. ` +
+        `You MUST respond with the full adventure JSON format as described in your system prompt, ` +
+        `with interactionType: "miniGame" and miniGame: { "type": "<game_type>", "round": 1 }. ` +
+        `The game type for theme "${mission.theme}" is determined by the theme mapping in your system prompt.`;
     } else {
       openingInstruction =
         `Generate a warm, friendly greeting from ${avatarName} to ${child.name}. ` +
@@ -115,8 +146,8 @@ export class ConversationEngine {
 
     try {
       const response = await anthropic.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
+        model: mission ? 'claude-sonnet-4-20250514' : 'claude-haiku-4-5-20251001',
+        max_tokens: mission ? 800 : 300,
         system: systemPrompt,
         messages: [
           {
@@ -131,7 +162,7 @@ export class ConversationEngine {
         return this.defaultOpeningMessage(child.name, avatarName, locale === 'he');
       }
 
-      return this.parseAvatarResponse(content.text, 'happy');
+      return this.parseAvatarResponse(content.text, mission ? 'excited' : 'happy');
     } catch (error) {
       console.error('Failed to generate opening message:', error);
       return this.defaultOpeningMessage(child.name, avatarName, locale === 'he');
@@ -159,7 +190,9 @@ export class ConversationEngine {
       child,
       avatar,
       parentQuestions,
+      runtimeGuidance,
       locale,
+      hasMission,
     } = params;
 
     const isHebrew = locale === 'he';
@@ -190,21 +223,31 @@ export class ConversationEngine {
     });
 
     // ── Step 3: Build messages array for Claude ──
+    // Combine question weaving hint with runtime guidance into a single guidance string
+    const guidanceHints: string[] = [];
+    if (weaving.shouldWeaveQuestion && weaving.integrationHint) {
+      guidanceHints.push(weaving.integrationHint);
+    }
+    if (runtimeGuidance?.length) {
+      guidanceHints.push(`Parent just sent live guidance: ${runtimeGuidance.join('; ')}`);
+    }
+
     const claudeMessages = this.buildClaudeMessages(
       messageHistory,
       childText,
-      weaving.shouldWeaveQuestion ? weaving.integrationHint : null,
+      guidanceHints.length > 0 ? guidanceHints.join('\n') : null,
       childSafety.severity !== 'none'
         ? this.buildSafetyContextNote(childSafety.severity)
         : null,
       isHebrew,
+      hasMission,
     );
 
     // ── Step 4: Generate response via Claude ─────
     try {
       const response = await anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 500,
+        max_tokens: hasMission ? 800 : 500,
         system: systemPrompt,
         messages: claudeMessages,
       });
@@ -245,6 +288,7 @@ export class ConversationEngine {
         text: avatarResponse.text,
         emotion: avatarResponse.emotion,
         metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+        adventure: avatarResponse.adventure,
       };
     } catch (error) {
       console.error('Failed to process child message:', error);
@@ -261,6 +305,7 @@ export class ConversationEngine {
     questionWeaveHint: string | null,
     safetyNote: string | null,
     isHebrew: boolean = false,
+    hasMission: boolean = false,
   ): Anthropic.MessageParam[] {
     const messages: Anthropic.MessageParam[] = [];
 
@@ -321,6 +366,10 @@ export class ConversationEngine {
       ? ' You MUST respond in Hebrew (עברית).'
       : '';
 
+    const jsonFormat = hasMission
+      ? 'Output JSON with adventure state: {"text": "your response", "emotion": "emotion_name", "adventure": {"sceneIndex": N, "sceneName": "...", "sceneEmojis": ["..."], "interactionType": "miniGame|voice|celebrate", "choices": null, "miniGame": {"type": "catch|match|sort|sequence", "round": N} or null, "starsEarned": N, "isSceneComplete": false, "isAdventureComplete": false, "collectible": null}}'
+      : 'Output JSON: {"text": "your response", "emotion": "emotion_name"}';
+
     if (questionWeaveHint || safetyNote) {
       const contextParts: string[] = [];
 
@@ -337,11 +386,11 @@ export class ConversationEngine {
         contextParts.join('\n') +
         '\n\n' +
         `Child says: "${currentChildText}"\n\n` +
-        `Respond naturally as the avatar.${langReminder} Output JSON: {"text": "your response", "emotion": "emotion_name"}`;
+        `Respond naturally as the avatar.${langReminder} ${jsonFormat}`;
     } else {
       currentMessage =
         `Child says: "${currentChildText}"\n\n` +
-        `Respond naturally as the avatar.${langReminder} Output JSON: {"text": "your response", "emotion": "emotion_name"}`;
+        `Respond naturally as the avatar.${langReminder} ${jsonFormat}`;
     }
 
     messages.push({
@@ -362,25 +411,83 @@ export class ConversationEngine {
   ): AvatarResponse {
     // Try to parse as JSON
     try {
-      // Extract JSON from the response (it might be wrapped in markdown code blocks)
-      const jsonMatch = rawText.match(/\{[\s\S]*?"text"[\s\S]*?\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        return {
-          text: parsed.text || rawText,
+      // Strip markdown code blocks if present
+      const cleaned = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+      // Try parsing the entire cleaned text as JSON first (handles nested adventure objects)
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch {
+        // If that fails, try to extract a top-level JSON object using brace matching
+        const startIdx = cleaned.indexOf('{');
+        if (startIdx !== -1) {
+          let depth = 0;
+          let endIdx = -1;
+          for (let i = startIdx; i < cleaned.length; i++) {
+            if (cleaned[i] === '{') depth++;
+            else if (cleaned[i] === '}') {
+              depth--;
+              if (depth === 0) { endIdx = i; break; }
+            }
+          }
+          if (endIdx !== -1) {
+            parsed = JSON.parse(cleaned.substring(startIdx, endIdx + 1));
+          }
+        }
+      }
+
+      if (parsed && parsed.text) {
+        const response: AvatarResponse = {
+          text: parsed.text,
           emotion: parsed.emotion || defaultEmotion,
         };
+
+        // Extract adventure state if present
+        if (parsed.adventure && typeof parsed.adventure === 'object') {
+          response.adventure = {
+            sceneIndex: parsed.adventure.sceneIndex ?? 0,
+            sceneName: parsed.adventure.sceneName ?? '',
+            sceneEmojis: Array.isArray(parsed.adventure.sceneEmojis)
+              ? parsed.adventure.sceneEmojis
+              : [],
+            interactionType: ['choice', 'voice', 'celebrate', 'miniGame'].includes(parsed.adventure.interactionType)
+              ? parsed.adventure.interactionType
+              : 'voice',
+            choices: Array.isArray(parsed.adventure.choices)
+              ? parsed.adventure.choices.map((c: any) => ({
+                  id: c.id || '',
+                  emoji: c.emoji || '',
+                  label: c.label || '',
+                }))
+              : null,
+            miniGame: parsed.adventure.miniGame && typeof parsed.adventure.miniGame === 'object'
+              ? {
+                  type: ['catch', 'match', 'sort', 'sequence'].includes(parsed.adventure.miniGame.type)
+                    ? parsed.adventure.miniGame.type
+                    : 'catch',
+                  round: parsed.adventure.miniGame.round ?? 1,
+                }
+              : null,
+            starsEarned: parsed.adventure.starsEarned ?? 0,
+            isSceneComplete: parsed.adventure.isSceneComplete ?? false,
+            isAdventureComplete: parsed.adventure.isAdventureComplete ?? false,
+            collectible: parsed.adventure.collectible
+              ? { emoji: parsed.adventure.collectible.emoji || '', name: parsed.adventure.collectible.name || '' }
+              : null,
+          };
+        }
+
+        return response;
       }
     } catch {
       // JSON parsing failed, use raw text
     }
 
     // Fall back to using the raw text as-is
-    // Clean up any remaining JSON artifacts
     const cleanText = rawText
       .replace(/```json\n?/g, '')
       .replace(/```\n?/g, '')
-      .replace(/^\s*\{.*\}\s*$/s, rawText) // If it looks like failed JSON, keep original
       .trim();
 
     return {

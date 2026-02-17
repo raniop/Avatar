@@ -23,21 +23,61 @@ struct ChildHomeView: View {
 
                 ScrollView {
                     VStack(spacing: AppTheme.Spacing.xl) {
-                        // Avatar greeting — always shown
+                        // Switch child button — only when more than one child
+                        if let children = appRouter.cachedChildren, children.count > 1 {
+                            HStack {
+                                if L == .hebrew { Spacer() }
+                                Button {
+                                    appRouter.switchChild()
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: L == .hebrew ? "chevron.right" : "chevron.left")
+                                        Text(L.switchChild)
+                                    }
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.85))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .background(.white.opacity(0.2), in: Capsule())
+                                }
+                                if L != .hebrew { Spacer() }
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.top, 8)
+                        }
+
+                        // Avatar greeting — child + friend side by side
                         VStack(spacing: AppTheme.Spacing.md) {
-                            if let image = viewModel.avatarImage {
-                                // Show the AI-generated cartoon avatar
-                                AnimatedAvatarView(image: image)
-                            } else {
-                                // Default placeholder avatar
-                                Circle()
-                                    .fill(.white.opacity(0.2))
-                                    .frame(width: 160, height: 160)
-                                    .overlay(
-                                        Image(systemName: "face.smiling.inverse")
-                                            .font(.system(size: 70))
-                                            .foregroundStyle(.white.opacity(0.6))
-                                    )
+                            HStack(spacing: 16) {
+                                // Friend's preset avatar (if chosen) — on the right in RTL
+                                if let presetId = viewModel.friendPresetId,
+                                   let friendImage = UIImage(named: "avatar_preset_\(presetId)") {
+                                    VStack(spacing: -6) {
+                                        AnimatedAvatarView(image: friendImage, size: 120)
+                                        Text(viewModel.friendName ?? "")
+                                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                                            .foregroundStyle(.white)
+                                    }
+                                }
+
+                                // Child's own AI-generated avatar
+                                VStack(spacing: -6) {
+                                    if let image = viewModel.avatarImage {
+                                        AnimatedAvatarView(image: image, size: 120)
+                                    } else {
+                                        Circle()
+                                            .fill(.white.opacity(0.2))
+                                            .frame(width: 120, height: 120)
+                                            .overlay(
+                                                Image(systemName: "face.smiling.inverse")
+                                                    .font(.system(size: 50))
+                                                    .foregroundStyle(.white.opacity(0.6))
+                                            )
+                                    }
+                                    Text(viewModel.child?.name ?? "")
+                                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.white)
+                                }
                             }
 
                             Text(L.childGreeting(viewModel.child?.name ?? ""))
@@ -49,6 +89,23 @@ struct ChildHomeView: View {
                                 .foregroundStyle(.white.opacity(0.9))
                         }
                         .padding(.top, AppTheme.Spacing.xxl)
+
+                        // Star counter (adventure progress)
+                        if viewModel.totalStars > 0 {
+                            HStack(spacing: 6) {
+                                Text("⭐")
+                                    .font(.system(size: 20))
+                                Text("\(viewModel.totalStars)")
+                                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                Text(L.starsCollected)
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.8))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(.white.opacity(0.2), in: Capsule())
+                        }
 
                         // Mission selection — always shown
                         VStack(spacing: AppTheme.Spacing.md) {
@@ -89,28 +146,28 @@ struct ChildHomeView: View {
                 }
                 await viewModel.loadData()
             }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                // Reload friend data when app returns to foreground or after setup overlay dismisses
+                viewModel.reloadFriendData()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .friendSetupCompleted)) { _ in
+                viewModel.reloadFriendData()
+            }
             .fullScreenCover(isPresented: $viewModel.showConversation) {
                 if let child = viewModel.child,
                    let mission = viewModel.selectedMission {
-                    ConversationView(
-                        viewModel: ConversationViewModel(child: child, mission: mission)
+                    AdventureView(
+                        viewModel: AdventureViewModel(
+                            child: child,
+                            mission: mission
+                        )
                     )
                 }
             }
-            .overlay {
-                if viewModel.isStartingMission {
-                    ZStack {
-                        Color.black.opacity(0.3)
-                            .ignoresSafeArea()
-                        VStack(spacing: 12) {
-                            ProgressView()
-                                .scaleEffect(1.5)
-                                .tint(.white)
-                            Text(L.gettingReady)
-                                .font(AppTheme.Fonts.childBody)
-                                .foregroundStyle(.white)
-                        }
-                    }
+            .onChange(of: viewModel.showConversation) { _, isShowing in
+                if !isShowing {
+                    // Reload progress after returning from adventure
+                    Task { await viewModel.refreshProgress() }
                 }
             }
         }

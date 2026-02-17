@@ -141,6 +141,53 @@ export async function missionRoutes(fastify: FastifyInstance) {
     },
   );
 
+  // ── Get adventure progress for a child ───────────
+  fastify.get(
+    '/progress/:childId',
+    async (
+      request: FastifyRequest<{
+        Params: { childId: string };
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { childId } = request.params;
+
+      const child = await prisma.child.findFirst({
+        where: { id: childId, parentId: request.user.userId },
+      });
+
+      if (!child) {
+        return reply.status(404).send({
+          error: true,
+          statusCode: 404,
+          message: 'Child not found',
+        });
+      }
+
+      const progress = await prisma.adventureProgress.findMany({
+        where: { childId },
+        select: {
+          missionId: true,
+          depth: true,
+          starsEarned: true,
+          collectibles: true,
+          completedAt: true,
+        },
+      });
+
+      const totalStars = progress.reduce((sum, p) => sum + p.starsEarned, 0);
+      const allCollectibles = progress.flatMap((p) =>
+        Array.isArray(p.collectibles) ? (p.collectibles as any[]) : [],
+      );
+
+      return reply.send({
+        progress,
+        totalStars,
+        collectibles: allCollectibles,
+      });
+    },
+  );
+
   // ── Get daily mission for a child ────────────────
   fastify.get(
     '/daily/:childId',

@@ -6,6 +6,7 @@ import prisma from '../../config/prisma';
 import { ConversationEngine } from '../../services/conversation-engine/ConversationEngine';
 import { SummaryEngine } from '../../services/summary-engine/SummaryEngine';
 import { VoicePipeline } from '../../services/voice-pipeline/VoicePipeline';
+import { NotificationService } from '../../services/notifications/NotificationService';
 
 const createConversationSchema = z.object({
   childId: z.string().uuid('Invalid child ID'),
@@ -32,6 +33,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
   const conversationEngine = new ConversationEngine();
   const summaryEngine = new SummaryEngine();
   const voicePipeline = new VoicePipeline();
+  const notificationService = new NotificationService();
 
   // ── Create conversation ──────────────────────────
   fastify.post(
@@ -63,6 +65,9 @@ export async function conversationRoutes(fastify: FastifyInstance) {
               where: { isActive: true },
               orderBy: { priority: 'desc' },
             },
+            parentGuidance: {
+              where: { isActive: true },
+            },
           },
         }),
         missionId
@@ -93,14 +98,63 @@ export async function conversationRoutes(fastify: FastifyInstance) {
         avatar: child.avatar,
         mission,
         parentQuestions: child.parentQuestions,
+        parentGuidance: child.parentGuidance,
         locale,
       });
 
-      // Generate opening message text (sync, fast — template-based, no AI)
+      // Generate opening message
       const avatarName = child.avatar?.name && child.avatar.name !== 'default'
         ? child.avatar.name
         : undefined;
-      const openingMessage = generateFastOpeningMessage(child.name, avatarName, mission, locale);
+
+      // For mission-based conversations, use Claude to generate adventure-formatted opening
+      // This ensures the first message in history has the correct JSON format
+      let openingText: string;
+      let openingEmotion: string;
+      let initialAdventure: any = null;
+
+      if (mission) {
+        // Generate opening with adventure structure via Claude
+        const adventureOpening = await conversationEngine.generateOpeningMessage({
+          conversationId: '', // not created yet, but not used by the method
+          child,
+          avatar: child.avatar,
+          mission,
+          locale,
+          systemPrompt,
+        });
+
+        openingText = adventureOpening.text;
+        openingEmotion = adventureOpening.emotion || 'excited';
+
+        // If Claude returned adventure state, use it; otherwise build a default
+        if (adventureOpening.adventure) {
+          initialAdventure = adventureOpening.adventure;
+        } else {
+          const gameType = getGameTypeForTheme(mission.theme);
+          initialAdventure = {
+            sceneIndex: 0,
+            sceneName: locale === 'he' ? 'ההתחלה' : 'The Beginning',
+            sceneEmojis: getThemeEmojis(mission.theme),
+            interactionType: 'miniGame' as const,
+            choices: null,
+            miniGame: { type: gameType, round: 1 },
+            starsEarned: 0,
+            isSceneComplete: false,
+            isAdventureComplete: false,
+            collectible: null,
+          };
+        }
+      } else {
+        const fastOpening = generateFastOpeningMessage(child.name, avatarName, null, locale);
+        openingText = fastOpening.text;
+        openingEmotion = fastOpening.emotion;
+      }
+
+      // Store the opening message as adventure JSON in DB so Claude sees the format in history
+      const openingTextForDB = mission && initialAdventure
+        ? JSON.stringify({ text: openingText, emotion: openingEmotion, adventure: initialAdventure })
+        : openingText;
 
       // Create conversation + opening message in a single transaction for speed
       const t1 = Date.now();
@@ -120,8 +174,8 @@ export async function conversationRoutes(fastify: FastifyInstance) {
           data: {
             conversationId,
             role: 'AVATAR',
-            textContent: openingMessage.text,
-            emotion: openingMessage.emotion,
+            textContent: openingTextForDB,
+            emotion: openingEmotion,
           },
         }),
       ]);
@@ -140,24 +194,36 @@ export async function conversationRoutes(fastify: FastifyInstance) {
         openingMessage: {
           id: avatarMessage.id,
           role: avatarMessage.role,
-          textContent: avatarMessage.textContent,
-          emotion: avatarMessage.emotion,
+          textContent: openingText,
+          emotion: openingEmotion,
           audioUrl: null,
           audioData: null,
           timestamp: avatarMessage.timestamp,
+          adventure: initialAdventure,
         },
       });
+
+      // Fire-and-forget: notify parent that child started playing
+      notificationService
+        .notifyChildStartedPlaying(
+          request.user.userId,
+          child.name,
+          conversation.id,
+          locale,
+        )
+        .catch((err: any) => console.error('[FCM] Failed to send push notification:', err));
 
       // Fire-and-forget: generate TTS in background and emit via WebSocket
       // The client will receive audio via the conversation:audio event after joining the room
       const conversationRoom = `conversation:${conversation.id}`;
       (async () => {
         try {
-          console.log(`[TTS] Generating opening audio in background for: "${openingMessage.text.substring(0, 60)}..."`);
+          console.log(`[TTS] Generating opening audio in background for: "${openingText.substring(0, 60)}..."`);
           const ttsResult = await voicePipeline.generateAvatarAudio(
-            openingMessage.text,
+            openingText,
             child.avatar?.voiceId || undefined,
             child.age,
+            locale,
           );
           console.log(`[TTS] Opening audio OK: url=${ttsResult.audioUrl}, duration=${ttsResult.audioDuration}s, bufferSize=${ttsResult.audioBuffer.length}`);
 
@@ -228,6 +294,9 @@ export async function conversationRoutes(fastify: FastifyInstance) {
                 where: { isActive: true },
                 orderBy: { priority: 'desc' },
               },
+              parentGuidance: {
+                where: { isActive: true },
+              },
             },
           },
           messages: {
@@ -265,6 +334,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
         child: conversation.child,
         avatar: conversation.child.avatar,
         parentQuestions: conversation.child.parentQuestions,
+        parentGuidance: conversation.child.parentGuidance,
         locale: conversation.locale,
       });
 
@@ -323,6 +393,9 @@ export async function conversationRoutes(fastify: FastifyInstance) {
                 where: { isActive: true },
                 orderBy: { priority: 'desc' },
               },
+              parentGuidance: {
+                where: { isActive: true },
+              },
             },
           },
           messages: {
@@ -361,6 +434,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
         child: conversation.child,
         avatar: conversation.child.avatar,
         parentQuestions: conversation.child.parentQuestions,
+        parentGuidance: conversation.child.parentGuidance,
         locale: conversation.locale,
       });
 
@@ -718,6 +792,52 @@ export async function conversationRoutes(fastify: FastifyInstance) {
   );
 }
 
+// ── Theme emoji mapping for initial adventure state ───────────────
+
+function getThemeEmojis(theme: string): string[] {
+  const themeEmojis: Record<string, string[]> = {
+    superhero_training: ['🦸', '💪', '⚡', '🌟'],
+    space_adventure: ['🚀', '🌍', '⭐', '🌙'],
+    cooking_adventure: ['👨‍🍳', '🍳', '🎂', '🍕'],
+    underwater_explorer: ['🌊', '🐠', '🐚', '🦈'],
+    magical_forest: ['🌲', '🍄', '🦋', '✨'],
+    dinosaur_world: ['🦕', '🌋', '🥚', '🦴'],
+    pirate_treasure_hunt: ['🏴‍☠️', '🗺️', '💰', '⚓'],
+    fairy_tale_kingdom: ['🏰', '👑', '🧚', '🌈'],
+    animal_rescue: ['🐾', '🏥', '❤️', '🐕'],
+    rainbow_land: ['🌈', '☁️', '🦄', '🎨'],
+    music_studio: ['🎵', '🎸', '🎹', '🎤'],
+    dance_party: ['💃', '🪩', '🎶', '✨'],
+    sports_champion: ['🏆', '⚽', '🥇', '🏃'],
+    singing_star: ['🎤', '⭐', '🎵', '🎶'],
+    animal_hospital: ['🏥', '🐾', '💊', '❤️'],
+  };
+  return themeEmojis[theme] || ['✨', '🌟', '🎯', '🎪'];
+}
+
+// ── Theme → Game type mapping (must match iOS GameThemeConfig) ────
+
+function getGameTypeForTheme(theme: string): 'catch' | 'match' | 'sort' | 'sequence' {
+  const mapping: Record<string, 'catch' | 'match' | 'sort' | 'sequence'> = {
+    sports_champion: 'catch',
+    space_adventure: 'catch',
+    underwater_explorer: 'catch',
+    magical_forest: 'match',
+    dinosaur_world: 'match',
+    pirate_treasure_hunt: 'match',
+    cooking_adventure: 'sort',
+    animal_rescue: 'sort',
+    rainbow_land: 'sort',
+    animal_hospital: 'sort',
+    fairy_tale_kingdom: 'sequence',
+    superhero_training: 'sequence',
+    music_studio: 'sequence',
+    dance_party: 'sequence',
+    singing_star: 'sequence',
+  };
+  return mapping[theme] || 'catch';
+}
+
 // ── Fast opening message templates (no AI call needed) ────────────
 
 interface OpeningResult {
@@ -740,9 +860,9 @@ function generateFastOpeningMessage(
   if (mission) {
     const missionTitle = isHebrew ? mission.titleHe : mission.titleEn;
     const heTemplates = [
-      `${intro} היום יוצאים להרפתקה מיוחדת - ${missionTitle}! מוכנים?`,
+      `${intro} היום יוצאים להרפתקה מיוחדת - ${missionTitle}! מוכן?`,
       `${intro} יש לנו משימה מדהימה היום - ${missionTitle}! בוא נתחיל!`,
-      `${intro} מוכנים ל${missionTitle}? זו הולכת להיות הרפתקה מטורפת!`,
+      `${intro} מוכן ל${missionTitle}? זו הולכת להיות הרפתקה מטורפת!`,
     ];
     const enTemplates = [
       `${intro} Today we're going on a special adventure - ${missionTitle}! Ready?`,

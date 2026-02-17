@@ -13,6 +13,8 @@ import { avatarRoutes } from './routes/avatars';
 import { missionRoutes } from './routes/missions';
 import { conversationRoutes } from './routes/conversations';
 import { questionRoutes } from './routes/questions';
+import { deviceRoutes } from './routes/devices';
+import { guidanceRoutes } from './routes/guidance';
 import { SessionManager } from './websocket/SessionManager';
 import { registerConversationHandler } from './websocket/handlers/conversationHandler';
 import { registerParentHandler } from './websocket/handlers/parentHandler';
@@ -63,6 +65,8 @@ async function buildApp() {
   await fastify.register(missionRoutes, { prefix: '/api/missions' });
   await fastify.register(conversationRoutes, { prefix: '/api/conversations' });
   await fastify.register(questionRoutes, { prefix: '/api/questions' });
+  await fastify.register(deviceRoutes, { prefix: '/api/devices' });
+  await fastify.register(guidanceRoutes, { prefix: '/api/guidance' });
 
   // ── Global error handler ─────────────────────────
   fastify.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
@@ -137,12 +141,15 @@ async function start() {
   // ── Start server ─────────────────────────────────
   try {
     await fastify.listen({ port: env.PORT, host: env.HOST });
-    fastify.log.info(`Server listening on http://${env.HOST}:${env.PORT}`);
-    fastify.log.info(`Socket.IO listening on path /ws`);
+    console.log(`Server listening on http://${env.HOST}:${env.PORT}`);
+    console.log(`Socket.IO listening on path /ws`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
   }
 }
 
-start();
+start().catch((err) => {
+  console.error('Fatal startup error:', err);
+  process.exit(1);
+});

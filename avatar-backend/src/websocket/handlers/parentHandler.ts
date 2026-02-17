@@ -169,6 +169,74 @@ export function registerParentHandler(
     },
   );
 
+  // ── Parent Guidance (stealth instruction to avatar) ─
+  socket.on(
+    'parent:guidance',
+    async (data: {
+      parentUserId: string;
+      conversationId: string;
+      instruction: string;
+    }) => {
+      try {
+        const { parentUserId, conversationId, instruction } = data;
+
+        if (!instruction?.trim()) {
+          socket.emit('parent:error', {
+            message: 'Guidance instruction cannot be empty',
+          });
+          return;
+        }
+
+        // Verify ownership
+        const conversation = await prisma.conversation.findFirst({
+          where: {
+            id: conversationId,
+            child: { parentId: parentUserId },
+            status: 'ACTIVE',
+          },
+        });
+
+        if (!conversation) {
+          socket.emit('parent:error', {
+            message: 'Active conversation not found',
+          });
+          return;
+        }
+
+        // Append instruction to conversation's contextWindow.runtimeGuidance
+        const currentContext = (conversation.contextWindow as any) || {};
+        const existingGuidance = currentContext.runtimeGuidance || [];
+        const updatedGuidance = [...existingGuidance, instruction.trim()];
+
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: {
+            contextWindow: {
+              ...currentContext,
+              runtimeGuidance: updatedGuidance,
+            },
+          },
+        });
+
+        // Confirm to parent
+        socket.emit('parent:guidance_saved', {
+          conversationId,
+          instruction: instruction.trim(),
+          totalGuidance: updatedGuidance.length,
+        });
+
+        console.log(
+          `Parent ${parentUserId} sent guidance to conversation ${conversationId}: "${instruction.trim().substring(0, 50)}..."`,
+        );
+      } catch (error) {
+        console.error('Error sending parent guidance:', error);
+        socket.emit('parent:error', {
+          message: 'Failed to send guidance',
+        });
+      }
+    },
+  );
+
   // ── End Conversation (Parent-initiated) ──────────
   socket.on(
     'parent:end_conversation',

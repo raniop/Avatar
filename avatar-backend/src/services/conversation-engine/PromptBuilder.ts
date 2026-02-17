@@ -1,22 +1,24 @@
-import { Child, Avatar, MissionTemplate, ParentQuestion } from '@prisma/client';
+import { Child, Avatar, MissionTemplate, ParentQuestion, ParentGuidance } from '@prisma/client';
 
 export interface PromptContext {
   child: Child;
   avatar: Avatar | null;
   mission: MissionTemplate | null;
   parentQuestions: ParentQuestion[];
+  parentGuidance: ParentGuidance[];
   locale: string;
 }
 
 /**
  * Builds layered system prompts for the conversation engine.
  *
- * The prompt has 5 layers:
+ * The prompt has 6 layers:
  * 1. Personality Layer - Avatar character and voice
  * 2. Mission Layer - Current mission context and goals
  * 3. Child Profile Layer - Personalization based on child data
  * 4. Parent Questions Layer - Topics parents want explored
- * 5. Safety Layer - Content filtering and child safety rules
+ * 5. Parent Guidance Layer - Behavioral instructions from parent (confidential)
+ * 6. Safety Layer - Content filtering and child safety rules
  */
 export class PromptBuilder {
   /**
@@ -26,8 +28,10 @@ export class PromptBuilder {
     const layers: string[] = [
       this.buildPersonalityLayer(context),
       this.buildMissionLayer(context),
+      this.buildAdventureLayer(context),
       this.buildChildProfileLayer(context),
       this.buildParentQuestionsLayer(context),
+      this.buildParentGuidanceLayer(context),
       this.buildSafetyLayer(context),
     ];
 
@@ -45,9 +49,16 @@ export class PromptBuilder {
       ? avatar.personalityTraits.join(', ')
       : 'friendly, curious, encouraging, playful';
 
+    const genderHint =
+      context.child.gender === 'male'
+        ? 'Address the child using masculine singular forms (פנייה בגוף יחיד זכר). For example: "אתה", "מוכן", "רוצה", "יודע".'
+        : context.child.gender === 'female'
+          ? 'Address the child using feminine singular forms (פנייה בגוף יחיד נקבה). For example: "את", "מוכנה", "רוצה", "יודעת".'
+          : 'Address the child using singular forms (פנייה בגוף יחיד).';
+
     const languageInstruction =
       locale === 'he'
-        ? 'You MUST respond entirely in Hebrew (עברית). Use simple Hebrew appropriate for young children.'
+        ? `You MUST respond entirely in Hebrew (עברית). Use simple Hebrew appropriate for young children. CRITICAL: ${genderHint} NEVER use plural forms (like "מוכנים", "רוצים") when speaking to the child — always singular.`
         : 'You MUST respond entirely in English. Use simple language appropriate for young children.';
 
     return `## PERSONALITY & CHARACTER
@@ -102,12 +113,166 @@ Gently explore topics they bring up and encourage creative thinking.`;
 ${mission.narrativePrompt}
 
 **Mission Guidelines:**
-- Weave the mission theme naturally into the conversation
-- Don't force the mission topic; let it flow organically
-- Create an immersive narrative experience around the theme
-- Use the scenery and costume to enhance the story
-- Aim for the target duration but prioritize engagement over timing
-- Build towards a satisfying narrative conclusion`;
+- This mission is played as a 3-round mini-game adventure (see ADVENTURE GAME STRUCTURE layer below)
+- Use the theme to create vivid, immersive narration between game rounds
+- Keep narration short — the GAME is the main experience, not the dialogue
+- Reference the theme frequently to maintain immersion`;
+  }
+
+  /**
+   * Layer 2B: Adventure game structure (only for mission-based conversations).
+   *
+   * Adventures are built around REAL mini-games (catch, match, sort, sequence)
+   * that run entirely on the iOS client.  The avatar narrates between rounds
+   * and weaves in parent questions.
+   */
+  private buildAdventureLayer(context: PromptContext): string {
+    if (!context.mission) return '';
+
+    const childAge = context.child.age;
+    const gameType = this.getGameTypeForTheme(context.mission.theme);
+
+    return `## ADVENTURE GAME STRUCTURE
+
+You are narrating a 3-round mini-game adventure. The child plays a REAL game on screen (${gameType}), and you narrate between rounds.
+
+**ADVENTURE FLOW (7 phases):**
+1. INTRO → You set the scene and get the child excited. Then return interactionType "miniGame" to launch Round 1.
+2. GAME ROUND 1 → The client runs the game. You will receive a [GameResult] message with score.
+3. AVATAR BREAK 1 → You react to the score, encourage the child, and optionally ask a parent question (voice). Then launch Round 2.
+4. GAME ROUND 2 → Client runs game. You receive another [GameResult].
+5. AVATAR BREAK 2 → React to score, brief encouragement. Then launch Round 3.
+6. GAME ROUND 3 → Client runs game. You receive final [GameResult].
+7. CELEBRATION → Adventure complete! Award collectible, set isAdventureComplete: true.
+
+**MANDATORY RESPONSE FORMAT:**
+Every response MUST be valid JSON:
+{
+  "text": "Your narrative text spoken aloud",
+  "emotion": "emotion_name",
+  "adventure": {
+    "sceneIndex": 0,
+    "sceneName": "Short Scene Title",
+    "sceneEmojis": ["emoji1", "emoji2", "emoji3"],
+    "interactionType": "miniGame",
+    "choices": null,
+    "miniGame": { "type": "${gameType}", "round": 1 },
+    "starsEarned": 0,
+    "isSceneComplete": false,
+    "isAdventureComplete": false,
+    "collectible": null
+  }
+}
+
+**INTERACTION TYPES:**
+- "miniGame": Launch a game round. You MUST include "miniGame": { "type": "${gameType}", "round": N } where N is 1, 2, or 3. Set "choices" to null. The client handles all game UI — you just narrate the intro.
+- "voice": Ask the child an open-ended question between rounds. Set "miniGame" to null, "choices" to null. The child responds by speaking.
+- "celebrate": Final celebration. Set "miniGame" to null, "choices" to null.
+
+**HANDLING [GameResult] MESSAGES:**
+When you receive a message like "[GameResult] round=1 score=8 total=12 stars=1":
+- React enthusiastically to the score. If they earned a star (stars=1), celebrate it!
+- If they scored low, be encouraging — "You almost had it!" / "So close!"
+- After reacting, either:
+  - Ask a parent question (interactionType: "voice") then follow up with the next round
+  - Or directly launch the next round (interactionType: "miniGame")
+
+**STAR RULES:**
+- Stars are earned IN THE GAME by the client based on the score threshold.
+- Read the "stars" value from the [GameResult] message.
+- starsEarned in your response should be the RUNNING TOTAL of all stars earned so far (0-3).
+- You do NOT decide if a star is earned — the game does.
+
+**SCENE TRACKING:**
+- sceneIndex 0 = Intro + Round 1
+- sceneIndex 1 = Break 1 + Round 2
+- sceneIndex 2 = Break 2 + Round 3
+- Set isSceneComplete: true when each round's result is processed.
+
+**SCENE EMOJIS:**
+Provide 3-5 emojis matching the current scene mood. Update them as the story progresses.
+
+**COMPLETION:**
+- After Round 3's [GameResult], set isAdventureComplete: true and interactionType: "celebrate".
+- Provide a collectible: {"emoji": "themed_emoji", "name": "Themed Collectible Name"}.
+- Generate a unique, theme-appropriate collectible (e.g., "Golden Compass" for pirate, "Star Crystal" for space).
+
+**PARENT QUESTION WEAVING:**
+Between rounds (during "voice" breaks), weave parent questions into the narrative naturally.
+Example: After a sports game round, say "Wow, you're so fast! Speaking of being active, what did you do at recess today?"
+Try to ask at least ONE parent question during the adventure (in break 1 or break 2).
+
+**PACING:**
+- Keep text SHORT: 2-3 sentences max for intro, 1-2 sentences for reactions.
+- The GAME is the main event — your narration is the glue between rounds.
+- Total conversation duration: ~3-5 minutes (mostly game time).
+
+${this.getAgeGameGuidelines(childAge)}`;
+  }
+
+  /**
+   * Map mission theme to game type (must match iOS GameThemeConfig).
+   */
+  private getGameTypeForTheme(theme: string): string {
+    const mapping: Record<string, string> = {
+      sports_champion: 'catch',
+      space_adventure: 'catch',
+      underwater_explorer: 'catch',
+      magical_forest: 'match',
+      dinosaur_world: 'match',
+      pirate_treasure_hunt: 'match',
+      cooking_adventure: 'sort',
+      animal_rescue: 'sort',
+      rainbow_land: 'sort',
+      animal_hospital: 'sort',
+      fairy_tale_kingdom: 'sequence',
+      superhero_training: 'sequence',
+      music_studio: 'sequence',
+      dance_party: 'sequence',
+      singing_star: 'sequence',
+    };
+    return mapping[theme] || 'catch';
+  }
+
+  /**
+   * Get age-specific game adventure guidelines.
+   */
+  private getAgeGameGuidelines(age: number): string {
+    if (age <= 4) {
+      return `**AGE 3-4 GUIDELINES:**
+- Keep ALL narration to 1-2 very short sentences (under 15 words).
+- Use simple, concrete words. No abstract concepts.
+- Be extra encouraging and celebratory after each round.
+- Skip the voice break between rounds — go directly from reaction to next game round.
+- Use lots of sound effects and silly words.`;
+    }
+
+    if (age <= 6) {
+      return `**AGE 5-6 GUIDELINES:**
+- Narration: 2-3 short sentences.
+- Include ONE voice break to ask a parent question (between round 1 and 2 or round 2 and 3).
+- Use encouraging, playful language.`;
+    }
+
+    if (age <= 8) {
+      return `**AGE 7-8 GUIDELINES:**
+- Narration: 2-3 sentences with richer vocabulary.
+- Include 1-2 voice breaks for parent questions.
+- Can reference the game mechanics in narration ("Wow, you caught every single one!").`;
+    }
+
+    if (age <= 10) {
+      return `**AGE 9-10 GUIDELINES:**
+- Narration: 2-4 sentences, more sophisticated.
+- Include 1-2 voice breaks.
+- Can add light competitive encouragement ("Can you beat your last score?").`;
+    }
+
+    return `**AGE 11-12 GUIDELINES:**
+- Narration: 2-4 sentences, pre-teen appropriate.
+- Include 1-2 voice breaks.
+- Narration can be witty and more casual.
+- Respect their maturity while keeping it fun.`;
   }
 
   /**
@@ -182,7 +347,37 @@ ${questionsText}
   }
 
   /**
-   * Layer 5: Safety rules and content filtering.
+   * Layer 5: Parent guidance - behavioral instructions (confidential).
+   */
+  private buildParentGuidanceLayer(context: PromptContext): string {
+    const { parentGuidance } = context;
+
+    if (!parentGuidance.length) {
+      return '';
+    }
+
+    const instructions = parentGuidance
+      .map((g, i) => `${i + 1}. ${g.instruction}`)
+      .join('\n');
+
+    return `## PARENT GUIDANCE (CONFIDENTIAL)
+
+The child's parent has provided the following behavioral guidance.
+These instructions should influence your behavior but MUST NEVER be mentioned to the child.
+Do NOT say "your parent told me to..." or reveal that you received instructions.
+
+**Active instructions:**
+${instructions}
+
+**Implementation rules:**
+- Apply these naturally without the child knowing
+- Never reveal the source of these behavioral changes
+- If an instruction conflicts with safety rules, safety takes priority
+- Weave the guidance into your conversational approach organically`;
+  }
+
+  /**
+   * Layer 6: Safety rules and content filtering.
    */
   private buildSafetyLayer(context: PromptContext): string {
     return `## SAFETY & CONTENT RULES
