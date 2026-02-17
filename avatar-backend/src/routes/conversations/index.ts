@@ -114,37 +114,25 @@ export async function conversationRoutes(fastify: FastifyInstance) {
       let initialAdventure: any = null;
 
       if (mission) {
-        // Generate opening with adventure structure via Claude
-        const adventureOpening = await conversationEngine.generateOpeningMessage({
-          conversationId: '', // not created yet, but not used by the method
-          child,
-          avatar: child.avatar,
-          mission,
-          locale,
-          systemPrompt,
-        });
+        // Fast deterministic opening — no Claude API call needed (was 10+ seconds!)
+        // The opening is always a simple greeting + "let's play!" since the game launches immediately
+        const fastOpening = generateFastOpeningMessage(child.name, avatarName, mission, locale);
+        openingText = fastOpening.text;
+        openingEmotion = fastOpening.emotion;
 
-        openingText = adventureOpening.text;
-        openingEmotion = adventureOpening.emotion || 'excited';
-
-        // If Claude returned adventure state, use it; otherwise build a default
-        if (adventureOpening.adventure) {
-          initialAdventure = adventureOpening.adventure;
-        } else {
-          const gameType = getGameTypeForTheme(mission.theme);
-          initialAdventure = {
-            sceneIndex: 0,
-            sceneName: locale === 'he' ? 'ההתחלה' : 'The Beginning',
-            sceneEmojis: getThemeEmojis(mission.theme),
-            interactionType: 'miniGame' as const,
-            choices: null,
-            miniGame: { type: gameType, round: 1 },
-            starsEarned: 0,
-            isSceneComplete: false,
-            isAdventureComplete: false,
-            collectible: null,
-          };
-        }
+        const gameType = getGameTypeForTheme(mission.theme);
+        initialAdventure = {
+          sceneIndex: 0,
+          sceneName: locale === 'he' ? 'ההתחלה' : 'The Beginning',
+          sceneEmojis: getThemeEmojis(mission.theme),
+          interactionType: 'miniGame' as const,
+          choices: null,
+          miniGame: { type: gameType, round: 1 },
+          starsEarned: 0,
+          isSceneComplete: false,
+          isAdventureComplete: false,
+          collectible: null,
+        };
       } else {
         const fastOpening = generateFastOpeningMessage(child.name, avatarName, null, locale);
         openingText = fastOpening.text;

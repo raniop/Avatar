@@ -141,12 +141,31 @@ final class AdventureViewModel {
             } else {
                 pendingOpeningAudioMessageId = opening.id
                 beginTypewriterWait(messageId: opening.id, text: opening.textContent)
+                phase = .active
 
+                // No inline audio — wait for WebSocket audio, but don't wait forever
                 Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .seconds(20))
-                    guard let self, self.phase == .loading else { return }
-                    self.stopTypewriter()
-                    self.phase = .active
+                    try? await Task.sleep(for: .seconds(8))
+                    guard let self, self.pendingOpeningAudioMessageId != nil else { return }
+                    // Audio never arrived, clear pending
+                    self.pendingOpeningAudioMessageId = nil
+                }
+            }
+
+            // Fallback: ensure mini-game shows even if audio never plays/completes
+            if let adventure = opening.adventure,
+               adventure.interactionType == .miniGame,
+               adventure.miniGame != nil {
+                Task { @MainActor [weak self] in
+                    // Give audio time to play and trigger via onPlaybackComplete
+                    try? await Task.sleep(for: .seconds(4.0))
+                    guard let self else { return }
+                    // If game hasn't been shown yet, force show it
+                    if !self.showMiniGame && self.adventureState?.interactionType == .miniGame {
+                        withAnimation(.spring(response: 0.4)) {
+                            self.showMiniGame = true
+                        }
+                    }
                 }
             }
 
