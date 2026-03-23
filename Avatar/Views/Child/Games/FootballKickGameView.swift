@@ -33,25 +33,33 @@ struct FootballKickGameView: View {
                         .ignoresSafeArea()
                 }
 
-                // HUD overlay
+                // Prompt overlay (top)
                 VStack {
-                    promptView
-                        .padding(.top, 4)
+                    promptView.padding(.top, 4)
                     Spacer()
                 }
 
+                // Feedback
                 if let feedback {
-                    Text(feedback)
-                        .font(.system(size: 60, weight: .black, design: .rounded))
-                        .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.6), radius: 10)
-                        .transition(.scale.combined(with: .opacity))
-                        .allowsHitTesting(false)
+                    feedbackView(feedback, in: geo.size)
                 }
             }
             .onAppear { setupGame(size: geo.size) }
             .onDisappear { timerRunning = false }
         }
+    }
+
+    @ViewBuilder
+    private func feedbackView(_ text: String, in size: CGSize) -> some View {
+        Text(text)
+            .font(.system(size: 64, weight: .black, design: .rounded))
+            .foregroundStyle(
+                LinearGradient(colors: [.white, .yellow], startPoint: .top, endPoint: .bottom)
+            )
+            .shadow(color: .black, radius: 8)
+            .shadow(color: .orange.opacity(0.5), radius: 20)
+            .transition(.scale.combined(with: .opacity))
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -62,27 +70,28 @@ struct FootballKickGameView: View {
                     Text(emoji).font(.system(size: 36))
                 }
                 if challenge.correctAnswers.count > 1 {
-                    HStack(spacing: 3) {
+                    HStack(spacing: 4) {
                         ForEach(Array(challenge.correctAnswers.enumerated()), id: \.offset) { i, letter in
                             Text(i < letterIndex ? letter : "⬜")
-                                .font(.system(size: 22, weight: .bold, design: .rounded))
-                                .foregroundStyle(i == letterIndex ? Color.yellow : .white)
+                                .font(.system(size: 24, weight: .heavy, design: .rounded))
+                                .foregroundStyle(i == letterIndex ? .yellow : .white)
                         }
                     }
                 } else if !challenge.prompt.isEmpty {
                     Text(challenge.prompt)
-                        .font(.system(size: 30, weight: .black, design: .rounded))
+                        .font(.system(size: 32, weight: .black, design: .rounded))
                         .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.3), radius: 4)
+                        .shadow(color: .black.opacity(0.5), radius: 4)
                 }
-                Text(locale == .hebrew ? "בעט לאות הנכונה!" : "Kick to the right letter!")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.6))
+                Text(locale == .hebrew ? "בעט לאות הנכונה!" : "Kick the right letter!")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.7))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .background(.black.opacity(0.55))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial.opacity(0.8))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .shadow(color: .black.opacity(0.3), radius: 8)
         }
     }
 
@@ -95,20 +104,19 @@ struct FootballKickGameView: View {
         let kickScene = PenaltyKickScene(size: size)
         kickScene.scaleMode = .resizeFill
         kickScene.gameSpeed = difficulty.speed
-        kickScene.onKickResult = { character, isCorrect in
-            handleKick(character: character, isCorrect: isCorrect)
-        }
+        kickScene.distractorCount = difficulty.distractorCount
+        kickScene.onKickResult = { _, isCorrect in handleKick(isCorrect: isCorrect) }
+
         if let ch = challenges.first {
             let correct = ch.correctAnswers[0]
-            let distractors = Array(ch.distractors.prefix(difficulty.distractorCount))
             kickScene.pendingCorrect = correct
-            kickScene.pendingDistractors = distractors
+            kickScene.pendingDistractors = Array(ch.distractors.prefix(difficulty.distractorCount))
         }
         self.scene = kickScene
         startTimer()
     }
 
-    private func handleKick(character: String, isCorrect: Bool) {
+    private func handleKick(isCorrect: Bool) {
         if isCorrect {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             guard let challenge = currentChallenge else { return }
@@ -117,35 +125,34 @@ struct FootballKickGameView: View {
                 if letterIndex >= challenge.correctAnswers.count {
                     score += 1; showFeedback("⚽ גול!")
                     advanceChallenge()
-                } else {
-                    showFeedback("👍"); updateSceneChallenge()
-                }
+                } else { showFeedback("👍"); updateScene() }
             } else {
                 score += 1; showFeedback("⚽ גול!")
                 advanceChallenge()
             }
         } else {
             UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-            showFeedback("🧤")
+            showFeedback("🧤 נתפס!")
         }
     }
 
-    private func updateSceneChallenge() {
+    private func updateScene() {
         guard let ch = currentChallenge, letterIndex < ch.correctAnswers.count else { return }
-        scene?.setChallenge(correct: ch.correctAnswers[letterIndex], distractors: Array(ch.distractors.prefix(difficulty.distractorCount)))
+        scene?.setChallenge(correct: ch.correctAnswers[letterIndex],
+                            distractors: Array(ch.distractors.prefix(difficulty.distractorCount)))
     }
 
     private func advanceChallenge() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
             currentIndex += 1; letterIndex = 0
             if currentIndex >= challenges.count { timerRunning = false; onTimeUp() }
-            else { updateSceneChallenge() }
+            else { updateScene() }
         }
     }
 
     private func showFeedback(_ text: String) {
-        withAnimation(.spring(response: 0.3)) { feedback = text }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { withAnimation { feedback = nil } }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { feedback = text }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { withAnimation { feedback = nil } }
     }
 
     private func startTimer() {
@@ -157,11 +164,12 @@ struct FootballKickGameView: View {
     }
 }
 
-// MARK: - SpriteKit Scene
+// MARK: - SpriteKit Penalty Kick Scene
 
 class PenaltyKickScene: SKScene {
 
     var gameSpeed: Double = 1.0
+    var distractorCount: Int = 3
     var onKickResult: ((String, Bool) -> Void)?
     var pendingCorrect: String?
     var pendingDistractors: [String]?
@@ -170,263 +178,195 @@ class PenaltyKickScene: SKScene {
     private var currentDistractors: [String] = []
 
     // Nodes
-    private var ball: SKNode!
+    private var ball: SKSpriteNode!
     private var goalkeeper: SKNode!
     private var goalNode: SKNode!
     private var cameraNode: SKCameraNode!
     private var targetNodes: [(node: SKNode, character: String, isCorrect: Bool)] = []
     private var canKick = true
-    private var ballResting = true
-
-    // Crowd
-    private var crowdNodes: [SKNode] = []
 
     override func didMove(to view: SKView) {
-        backgroundColor = UIColor(red: 0.15, green: 0.45, blue: 0.15, alpha: 1)
+        backgroundColor = UIColor(red: 0.15, green: 0.42, blue: 0.15, alpha: 1)
         setupCamera()
         setupField()
         setupGoal()
         setupGoalkeeper()
         setupBall()
-        setupCrowd()
-        startGoalkeeperSway()
 
-        // Apply pending challenge if set before didMove
         if let correct = pendingCorrect, let distractors = pendingDistractors {
             pendingCorrect = nil; pendingDistractors = nil
             setChallenge(correct: correct, distractors: distractors)
         }
     }
 
-    // MARK: - Setup
-
     private func setupCamera() {
         cameraNode = SKCameraNode()
         cameraNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
-        addChild(cameraNode)
-        camera = cameraNode
+        addChild(cameraNode); camera = cameraNode
     }
 
     private func setupField() {
-        // Grass gradient (darker at top = distance)
-        let grassColors: [(CGFloat, UIColor)] = [
-            (0.0, UIColor(red: 0.1, green: 0.35, blue: 0.1, alpha: 1)),
-            (0.5, UIColor(red: 0.15, green: 0.45, blue: 0.15, alpha: 1)),
-            (1.0, UIColor(red: 0.2, green: 0.55, blue: 0.2, alpha: 1)),
-        ]
-        for i in 0..<20 {
-            let y = size.height * CGFloat(i) / 20.0
-            let h = size.height / 20.0 + 1
-            let t = CGFloat(i) / 20.0
-            let color = UIColor(
-                red: 0.1 + t * 0.12,
-                green: 0.3 + t * 0.25,
-                blue: 0.1 + t * 0.12,
-                alpha: 1
-            )
-            let stripe = SKShapeNode(rect: CGRect(x: 0, y: y, width: size.width, height: h))
-            stripe.fillColor = color
-            stripe.strokeColor = .clear
-            stripe.zPosition = -20
-            addChild(stripe)
-        }
-
-        // Grass texture lines
-        for _ in 0..<40 {
-            let x = CGFloat.random(in: 0...size.width)
-            let y = CGFloat.random(in: 0...size.height * 0.6)
-            let line = SKShapeNode(rect: CGRect(x: 0, y: 0, width: CGFloat.random(in: 15...40), height: 1.5))
-            line.fillColor = UIColor(red: 0.25, green: 0.6, blue: 0.2, alpha: 0.15)
-            line.strokeColor = .clear
-            line.position = CGPoint(x: x, y: y)
-            line.zPosition = -18
-            line.zRotation = CGFloat.random(in: -0.2...0.2)
-            addChild(line)
-        }
+        // Grass texture
+        let grass = SKSpriteNode(texture: GameTexture.grassField(size: size))
+        grass.position = CGPoint(x: size.width / 2, y: size.height / 2)
+        grass.size = size; grass.zPosition = -20
+        addChild(grass)
 
         // Penalty box
-        let boxW = size.width * 0.75
-        let boxH = size.height * 0.35
-        let boxY = size.height * 0.52
-        let box = SKShapeNode(rect: CGRect(x: (size.width - boxW) / 2, y: boxY, width: boxW, height: boxH), cornerRadius: 0)
-        box.fillColor = .clear
-        box.strokeColor = .white.withAlphaComponent(0.2)
-        box.lineWidth = 2
-        box.zPosition = -15
+        let boxW = size.width * 0.75, boxH = size.height * 0.38
+        let boxY = size.height * 0.50
+        let box = SKShapeNode(rect: CGRect(x: (size.width - boxW)/2, y: boxY, width: boxW, height: boxH))
+        box.strokeColor = .white.withAlphaComponent(0.25); box.lineWidth = 2.5
+        box.fillColor = .clear; box.zPosition = -15
         addChild(box)
 
         // Penalty spot
-        let spot = SKShapeNode(circleOfRadius: 4)
-        spot.fillColor = .white.withAlphaComponent(0.5)
-        spot.strokeColor = .clear
-        spot.position = CGPoint(x: size.width / 2, y: size.height * 0.3)
-        spot.zPosition = -15
+        let spot = SKShapeNode(circleOfRadius: 5)
+        spot.fillColor = .white.withAlphaComponent(0.6); spot.strokeColor = .clear
+        spot.position = CGPoint(x: size.width / 2, y: size.height * 0.28); spot.zPosition = -15
         addChild(spot)
 
-        // Center arc
+        // Penalty arc
         let arcPath = CGMutablePath()
         arcPath.addArc(center: CGPoint(x: size.width / 2, y: boxY),
-                       radius: 60, startAngle: .pi * 0.2, endAngle: .pi * 0.8, clockwise: false)
+                       radius: 65, startAngle: .pi * 0.2, endAngle: .pi * 0.8, clockwise: false)
         let arc = SKShapeNode(path: arcPath)
-        arc.strokeColor = .white.withAlphaComponent(0.15)
-        arc.lineWidth = 2
-        arc.zPosition = -15
+        arc.strokeColor = .white.withAlphaComponent(0.2); arc.lineWidth = 2.5; arc.zPosition = -15
         addChild(arc)
+
+        // Vignette overlay (subtle darkening at edges for depth)
+        let vignette = SKEffectNode()
+        let vignetteShape = SKShapeNode(rect: CGRect(origin: .zero, size: size))
+        vignetteShape.fillColor = .clear; vignetteShape.strokeColor = .clear
+        vignette.addChild(vignetteShape)
+        vignette.zPosition = 30; vignette.alpha = 0.3
+        // Skip heavy filter for performance
     }
 
     private func setupGoal() {
         goalNode = SKNode()
-        goalNode.position = CGPoint(x: size.width / 2, y: size.height * 0.78)
+        goalNode.position = CGPoint(x: size.width / 2, y: size.height * 0.76)
         goalNode.zPosition = 5
         addChild(goalNode)
 
-        let goalW: CGFloat = size.width * 0.7
-        let goalH: CGFloat = size.height * 0.16
-        let postWidth: CGFloat = 6
+        let goalW = size.width * 0.72, goalH = size.height * 0.17
+        let postW: CGFloat = 8
 
-        // Net background
-        let netBg = SKShapeNode(rect: CGRect(x: -goalW/2, y: 0, width: goalW, height: goalH), cornerRadius: 2)
-        netBg.fillColor = UIColor(white: 0, alpha: 0.3)
-        netBg.strokeColor = .clear
-        netBg.zPosition = -2
-        goalNode.addChild(netBg)
+        // Net
+        let net = SKSpriteNode(texture: GameTexture.goalNet(size: CGSize(width: goalW, height: goalH)))
+        net.size = CGSize(width: goalW, height: goalH)
+        net.position = CGPoint(x: 0, y: goalH / 2)
+        net.zPosition = -2; net.name = "net"
+        goalNode.addChild(net)
 
-        // Net lines
-        let netSpacing: CGFloat = 12
-        for col in 0...Int(goalW / netSpacing) {
-            let x = -goalW/2 + CGFloat(col) * netSpacing
-            let line = SKShapeNode(rect: CGRect(x: x, y: 0, width: 1, height: goalH))
-            line.fillColor = .white.withAlphaComponent(0.08)
-            line.strokeColor = .clear
-            line.zPosition = -1
-            goalNode.addChild(line)
-        }
-        for row in 0...Int(goalH / netSpacing) {
-            let y = CGFloat(row) * netSpacing
-            let line = SKShapeNode(rect: CGRect(x: -goalW/2, y: y, width: goalW, height: 1))
-            line.fillColor = .white.withAlphaComponent(0.08)
-            line.strokeColor = .clear
-            line.zPosition = -1
-            goalNode.addChild(line)
-        }
-
-        // Posts
-        let leftPost = SKShapeNode(rect: CGRect(x: -goalW/2 - postWidth/2, y: -5, width: postWidth, height: goalH + 10), cornerRadius: 2)
-        leftPost.fillColor = .white
-        leftPost.strokeColor = UIColor(white: 0.85, alpha: 1)
-        leftPost.lineWidth = 1
+        // Left post
+        let leftTex = GameTexture.goalPost(size: CGSize(width: postW, height: goalH + 10))
+        let leftPost = SKSpriteNode(texture: leftTex)
+        leftPost.size = CGSize(width: postW, height: goalH + 10)
+        leftPost.position = CGPoint(x: -goalW/2, y: goalH/2)
         goalNode.addChild(leftPost)
 
-        let rightPost = SKShapeNode(rect: CGRect(x: goalW/2 - postWidth/2, y: -5, width: postWidth, height: goalH + 10), cornerRadius: 2)
-        rightPost.fillColor = .white
-        rightPost.strokeColor = UIColor(white: 0.85, alpha: 1)
-        rightPost.lineWidth = 1
+        // Right post
+        let rightPost = SKSpriteNode(texture: leftTex)
+        rightPost.size = CGSize(width: postW, height: goalH + 10)
+        rightPost.position = CGPoint(x: goalW/2, y: goalH/2)
         goalNode.addChild(rightPost)
 
         // Crossbar
-        let crossbar = SKShapeNode(rect: CGRect(x: -goalW/2 - postWidth/2, y: goalH, width: goalW + postWidth, height: postWidth), cornerRadius: 2)
-        crossbar.fillColor = .white
-        crossbar.strokeColor = UIColor(white: 0.85, alpha: 1)
-        crossbar.lineWidth = 1
+        let crossTex = GameTexture.goalPost(size: CGSize(width: goalW + postW, height: postW))
+        let crossbar = SKSpriteNode(texture: crossTex)
+        crossbar.size = CGSize(width: goalW + postW, height: postW)
+        crossbar.position = CGPoint(x: 0, y: goalH)
         goalNode.addChild(crossbar)
     }
 
     private func setupGoalkeeper() {
         goalkeeper = SKNode()
-        goalkeeper.position = CGPoint(x: size.width / 2, y: size.height * 0.78 + 10)
+        goalkeeper.position = CGPoint(x: size.width / 2, y: size.height * 0.77)
         goalkeeper.zPosition = 6
 
-        // Body
-        let body = SKShapeNode(rectOf: CGSize(width: 30, height: 40), cornerRadius: 6)
-        body.fillColor = UIColor(red: 1.0, green: 0.7, blue: 0.1, alpha: 1)
-        body.strokeColor = UIColor(red: 0.8, green: 0.5, blue: 0, alpha: 1)
-        body.lineWidth = 2
-        goalkeeper.addChild(body)
+        // Simple but clean goalkeeper using layers
+        // Jersey
+        let jersey = SKShapeNode(rectOf: CGSize(width: 34, height: 44), cornerRadius: 8)
+        jersey.fillColor = UIColor(red: 0.95, green: 0.75, blue: 0.1, alpha: 1)
+        jersey.strokeColor = UIColor(red: 0.7, green: 0.55, blue: 0.05, alpha: 1)
+        jersey.lineWidth = 2
+        goalkeeper.addChild(jersey)
+
+        // Shorts
+        let shorts = SKShapeNode(rectOf: CGSize(width: 30, height: 16), cornerRadius: 4)
+        shorts.fillColor = UIColor(white: 0.15, alpha: 1)
+        shorts.strokeColor = .clear
+        shorts.position = CGPoint(x: 0, y: -26)
+        goalkeeper.addChild(shorts)
 
         // Head
-        let head = SKShapeNode(circleOfRadius: 12)
-        head.fillColor = UIColor(red: 0.95, green: 0.8, blue: 0.6, alpha: 1)
-        head.strokeColor = .clear
-        head.position = CGPoint(x: 0, y: 28)
+        let head = SKShapeNode(circleOfRadius: 14)
+        head.fillColor = UIColor(red: 0.92, green: 0.78, blue: 0.6, alpha: 1)
+        head.strokeColor = UIColor(red: 0.7, green: 0.55, blue: 0.4, alpha: 1)
+        head.lineWidth = 1
+        head.position = CGPoint(x: 0, y: 32)
         goalkeeper.addChild(head)
 
+        // Hair
+        let hair = SKShapeNode(rectOf: CGSize(width: 22, height: 8), cornerRadius: 4)
+        hair.fillColor = UIColor(red: 0.2, green: 0.15, blue: 0.1, alpha: 1)
+        hair.strokeColor = .clear
+        hair.position = CGPoint(x: 0, y: 40)
+        goalkeeper.addChild(hair)
+
         // Gloves
-        for dx: CGFloat in [-22, 22] {
-            let glove = SKShapeNode(circleOfRadius: 8)
-            glove.fillColor = UIColor(red: 0.2, green: 0.7, blue: 0.2, alpha: 1)
-            glove.strokeColor = .clear
-            glove.position = CGPoint(x: dx, y: 10)
+        for dx: CGFloat in [-24, 24] {
+            let glove = SKShapeNode(circleOfRadius: 9)
+            glove.fillColor = UIColor(red: 0.2, green: 0.75, blue: 0.25, alpha: 1)
+            glove.strokeColor = UIColor(red: 0.1, green: 0.5, blue: 0.15, alpha: 1)
+            glove.lineWidth = 1.5
+            glove.position = CGPoint(x: dx, y: 8)
             glove.name = "glove"
             goalkeeper.addChild(glove)
         }
 
+        // Shadow under goalkeeper
+        let shadow = SKShapeNode(ellipseOf: CGSize(width: 50, height: 14))
+        shadow.fillColor = UIColor(white: 0, alpha: 0.2)
+        shadow.strokeColor = .clear
+        shadow.position = CGPoint(x: 0, y: -38)
+        shadow.zPosition = -1
+        goalkeeper.addChild(shadow)
+
         addChild(goalkeeper)
+        startGoalkeeperSway()
     }
 
     private func setupBall() {
-        ball = SKNode()
-        ball.position = CGPoint(x: size.width / 2, y: size.height * 0.22)
+        let ballTexture = GameTexture.football(radius: 26)
+        ball = SKSpriteNode(texture: ballTexture)
+        ball.size = CGSize(width: 52, height: 52)
+        ball.position = CGPoint(x: size.width / 2, y: size.height * 0.20)
         ball.zPosition = 15
 
-        // Ball body
-        let ballShape = SKShapeNode(circleOfRadius: 22)
-        ballShape.fillColor = .white
-        ballShape.strokeColor = UIColor(white: 0.3, alpha: 1)
-        ballShape.lineWidth = 2
-        ball.addChild(ballShape)
-
-        // Pentagon pattern
-        for angle in stride(from: 0.0, to: Double.pi * 2, by: Double.pi * 2 / 5) {
-            let pent = SKShapeNode(circleOfRadius: 6)
-            pent.fillColor = UIColor(white: 0.15, alpha: 1)
-            pent.strokeColor = .clear
-            pent.position = CGPoint(x: cos(angle) * 11, y: sin(angle) * 11)
-            ball.addChild(pent)
-        }
-
-        // Center pentagon
-        let center = SKShapeNode(circleOfRadius: 7)
-        center.fillColor = UIColor(white: 0.15, alpha: 1)
-        center.strokeColor = .clear
-        ball.addChild(center)
-
         // Shadow
-        let shadow = SKShapeNode(ellipseOf: CGSize(width: 40, height: 12))
+        let shadow = SKShapeNode(ellipseOf: CGSize(width: 44, height: 12))
         shadow.fillColor = UIColor(white: 0, alpha: 0.25)
         shadow.strokeColor = .clear
-        shadow.position = CGPoint(x: 0, y: -25)
+        shadow.position = CGPoint(x: 0, y: -28)
         shadow.zPosition = -1
+        shadow.name = "ballShadow"
         ball.addChild(shadow)
 
         addChild(ball)
     }
 
-    private func setupCrowd() {
-        // Crowd behind goal (top of screen)
-        let crowdY = size.height * 0.92
-        for i in 0..<30 {
-            let x = CGFloat(i) * (size.width / 30) + CGFloat.random(in: -5...5)
-            let person = SKShapeNode(circleOfRadius: CGFloat.random(in: 4...7))
-            let colors: [UIColor] = [.red, .blue, .yellow, .green, .white, .orange, .purple, .cyan]
-            person.fillColor = colors.randomElement()!.withAlphaComponent(0.6)
-            person.strokeColor = .clear
-            person.position = CGPoint(x: x, y: crowdY + CGFloat.random(in: -8...8))
-            person.zPosition = -12
-            addChild(person)
-            crowdNodes.append(person)
-        }
-    }
-
-    // MARK: - Goalkeeper
+    // MARK: - Goalkeeper Sway
 
     private func startGoalkeeperSway() {
         let sway = SKAction.repeatForever(SKAction.sequence([
             SKAction.wait(forDuration: Double.random(in: 0.8...1.5)),
             SKAction.run { [weak self] in
                 guard let self, self.canKick else { return }
-                let range = self.size.width * 0.15
+                let range = self.size.width * 0.12
                 let newX = self.size.width / 2 + CGFloat.random(in: -range...range)
-                self.goalkeeper.run(SKAction.moveTo(x: newX, duration: 0.6))
+                self.goalkeeper.run(SKAction.moveTo(x: newX, duration: 0.7))
             }
         ]))
         goalkeeper.run(sway, withKey: "sway")
@@ -438,74 +378,56 @@ class PenaltyKickScene: SKScene {
         currentCorrect = correct
         currentDistractors = distractors
 
-        // Remove old targets
         for t in targetNodes { t.node.removeFromParent() }
         targetNodes.removeAll()
 
-        // Create letter targets inside goal
-        var options = distractors.shuffled()
+        var options = Array(distractors.prefix(distractorCount))
         if !options.contains(correct) { options.append(correct) }
-        else { options.append(correct) } // ensure correct is in
-        // Deduplicate and limit
-        var seen = Set<String>()
-        var unique: [String] = []
-        for o in options {
-            if !seen.contains(o) { seen.insert(o); unique.append(o) }
-            if unique.count >= distractors.count + 1 { break }
-        }
-        unique.shuffle()
+        options.shuffle()
 
-        let goalW = size.width * 0.7
-        let goalH = size.height * 0.16
+        let goalW = size.width * 0.72
+        let goalH = size.height * 0.17
         let goalX = size.width / 2
-        let goalY = size.height * 0.78
+        let goalY = size.height * 0.76
 
-        let cols = unique.count <= 4 ? 2 : 3
-        let rows = (unique.count + cols - 1) / cols
-        let cellW = (goalW - 20) / CGFloat(cols)
-        let cellH = (goalH - 20) / CGFloat(rows)
+        let cols = options.count <= 4 ? 2 : 3
+        let rows = (options.count + cols - 1) / cols
+        let cellW = (goalW - 24) / CGFloat(cols)
+        let cellH = (goalH - 16) / CGFloat(rows)
 
-        for (idx, char) in unique.enumerated() {
+        for (idx, char) in options.enumerated() {
             let col = idx % cols
             let row = idx / cols
-            let x = goalX - goalW/2 + 10 + cellW * CGFloat(col) + cellW / 2
-            let y = goalY + 10 + cellH * CGFloat(row) + cellH / 2
+            let x = goalX - goalW/2 + 12 + cellW * CGFloat(col) + cellW / 2
+            let y = goalY + 8 + cellH * CGFloat(row) + cellH / 2
 
             let isCorrect = char == correct
             let target = SKNode()
             target.position = CGPoint(x: x, y: y)
             target.zPosition = 7
 
-            // Target background
-            let bg = SKShapeNode(rectOf: CGSize(width: cellW - 8, height: cellH - 6), cornerRadius: 8)
-            bg.fillColor = UIColor(white: 1, alpha: 0.15)
-            bg.strokeColor = .white.withAlphaComponent(0.4)
-            bg.lineWidth = 2
-            target.addChild(bg)
+            // Target bubble
+            let bubbleColor = isCorrect
+                ? UIColor(red: 0.2, green: 0.7, blue: 0.3, alpha: 1)
+                : UIColor(red: 0.3, green: 0.3, blue: 0.4, alpha: 1)
+            let bubbleGlow = isCorrect ? UIColor.green : nil
+            let bubbleTex = GameTexture.letterBubble(size: min(cellW, cellH) - 8, color: bubbleColor, glowColor: bubbleGlow)
+            let bubble = SKSpriteNode(texture: bubbleTex)
+            bubble.size = CGSize(width: min(cellW, cellH), height: min(cellW, cellH))
+            target.addChild(bubble)
 
             // Letter
             let label = SKLabelNode(text: char)
             label.fontName = "AvenirNext-Heavy"
-            label.fontSize = 30
+            label.fontSize = 28
             label.fontColor = .white
             label.verticalAlignmentMode = .center
             target.addChild(label)
-
-            // Glow for correct (subtle)
-            if isCorrect {
-                let glow = SKShapeNode(rectOf: CGSize(width: cellW - 4, height: cellH - 2), cornerRadius: 10)
-                glow.fillColor = .clear
-                glow.strokeColor = UIColor.green.withAlphaComponent(0.0) // hidden, revealed on hover
-                glow.glowWidth = 0
-                glow.name = "correctGlow"
-                target.addChild(glow)
-            }
 
             addChild(target)
             targetNodes.append((node: target, character: char, isCorrect: isCorrect))
         }
 
-        // Reset ball and goalkeeper
         resetBall()
         canKick = true
     }
@@ -513,13 +435,12 @@ class PenaltyKickScene: SKScene {
     private func resetBall() {
         guard ball != nil, goalkeeper != nil else { return }
         ball.removeAllActions()
-        ball.position = CGPoint(x: size.width / 2, y: size.height * 0.22)
-        ball.setScale(1.0)
-        ball.alpha = 1.0
-        ballResting = true
+        ball.position = CGPoint(x: size.width / 2, y: size.height * 0.20)
+        ball.setScale(1.0); ball.alpha = 1.0; ball.zRotation = 0
 
         goalkeeper.removeAction(forKey: "sway")
-        goalkeeper.position = CGPoint(x: size.width / 2, y: size.height * 0.78 + 10)
+        goalkeeper.position = CGPoint(x: size.width / 2, y: size.height * 0.77)
+        goalkeeper.zRotation = 0
         startGoalkeeperSway()
     }
 
@@ -528,13 +449,9 @@ class PenaltyKickScene: SKScene {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard canKick, let touch = touches.first else { return }
         let loc = touch.location(in: self)
-
-        // Find which target was tapped
         for target in targetNodes {
-            let dist = hypot(loc.x - target.node.position.x, loc.y - target.node.position.y)
-            if dist < 45 {
-                kickBall(to: target)
-                return
+            if hypot(loc.x - target.node.position.x, loc.y - target.node.position.y) < 45 {
+                kickBall(to: target); return
             }
         }
     }
@@ -543,77 +460,86 @@ class PenaltyKickScene: SKScene {
 
     private func kickBall(to target: (node: SKNode, character: String, isCorrect: Bool)) {
         canKick = false
-        ballResting = false
         goalkeeper.removeAction(forKey: "sway")
 
         let targetPos = target.node.position
         let isCorrect = target.isCorrect
 
-        // Goalkeeper reaction
+        // Goalkeeper dive
+        let gkDiveX: CGFloat
         if isCorrect {
-            // Dive WRONG way
-            let wrongX = targetPos.x > size.width / 2
+            gkDiveX = targetPos.x > size.width / 2
                 ? size.width / 2 - size.width * 0.25
                 : size.width / 2 + size.width * 0.25
-            let dive = SKAction.group([
-                SKAction.moveTo(x: wrongX, duration: 0.3),
-                SKAction.rotate(toAngle: wrongX < size.width/2 ? 0.8 : -0.8, duration: 0.3),
-            ])
-            goalkeeper.run(dive)
         } else {
-            // Dive TOWARD ball and catch
-            let dive = SKAction.group([
-                SKAction.moveTo(x: targetPos.x, duration: 0.25),
-                SKAction.rotate(toAngle: targetPos.x < size.width/2 ? 0.5 : -0.5, duration: 0.25),
-            ])
-            goalkeeper.run(dive)
+            gkDiveX = targetPos.x
         }
+        let diveRotation: CGFloat = gkDiveX < size.width / 2 ? 0.7 : -0.7
+        goalkeeper.run(SKAction.group([
+            SKAction.moveTo(x: gkDiveX, duration: isCorrect ? 0.35 : 0.28),
+            SKAction.rotate(toAngle: diveRotation, duration: 0.3)
+        ]))
 
-        // Ball flight — arc toward target
-        let midY = (ball.position.y + targetPos.y) / 2 + 30
+        // Ball arc flight
+        let midY = (ball.position.y + targetPos.y) / 2 + 40
         let path = CGMutablePath()
         path.move(to: ball.position)
-        path.addQuadCurve(to: targetPos, control: CGPoint(x: targetPos.x, y: midY))
+        path.addQuadCurve(to: targetPos, control: CGPoint(x: targetPos.x * 0.7 + ball.position.x * 0.3, y: midY))
 
         let fly = SKAction.follow(path, asOffset: false, orientToPath: false, duration: 0.4)
         fly.timingMode = .easeOut
-        let shrink = SKAction.scale(to: 0.6, duration: 0.4) // perspective
-        let spin = SKAction.rotate(byAngle: .pi * 3, duration: 0.4)
+        let spin = SKAction.rotate(byAngle: .pi * 4, duration: 0.4)
+        let shrink = SKAction.scale(to: 0.55, duration: 0.4)
 
-        ball.run(SKAction.group([fly, shrink, spin])) { [weak self] in
-            guard let self else { return }
-            if isCorrect {
-                self.handleGoal(at: targetPos)
-            } else {
-                self.handleSave(at: targetPos)
+        ball.run(SKAction.sequence([
+            SKAction.group([fly, spin, shrink]),
+            SKAction.run { [weak self] in
+                if isCorrect { self?.handleGoal(at: targetPos) }
+                else { self?.handleSave(at: targetPos) }
             }
-        }
+        ]))
+
+        // Ball trail particles
+        spawnBallTrail()
+    }
+
+    private func spawnBallTrail() {
+        let trail = SKAction.repeat(SKAction.sequence([
+            SKAction.run { [weak self] in
+                guard let self else { return }
+                let p = SKShapeNode(circleOfRadius: CGFloat.random(in: 2...5))
+                p.fillColor = .white.withAlphaComponent(0.3)
+                p.strokeColor = .clear
+                p.position = self.ball.position
+                p.zPosition = 14
+                self.addChild(p)
+                p.run(SKAction.sequence([
+                    SKAction.group([SKAction.fadeOut(withDuration: 0.3), SKAction.scale(to: 0.1, duration: 0.3)]),
+                    SKAction.removeFromParent()
+                ]))
+            },
+            SKAction.wait(forDuration: 0.03)
+        ]), count: 12)
+        run(trail)
     }
 
     private func handleGoal(at pos: CGPoint) {
         // Net ripple
-        if let net = goalNode.children.first(where: { ($0 as? SKShapeNode)?.fillColor == UIColor(white: 0, alpha: 0.3) }) {
+        if let net = goalNode.childNode(withName: "net") {
             net.run(SKAction.sequence([
-                SKAction.scale(to: 1.08, duration: 0.1),
-                SKAction.scale(to: 1.0, duration: 0.2)
+                SKAction.scale(to: 1.06, duration: 0.08),
+                SKAction.scale(to: 0.97, duration: 0.08),
+                SKAction.scale(to: 1.0, duration: 0.1)
             ]))
         }
 
-        // Goal particles
+        // Explosion of particles
         spawnGoalParticles(at: pos)
-
-        // Crowd goes wild
-        animateCrowd()
-
-        // Flash
         flashScreen(color: .green)
-
-        // Camera shake (small, celebratory)
-        shakeCamera(intensity: 4)
+        shakeCamera(intensity: 5)
 
         onKickResult?(currentCorrect, true)
 
-        // Reset after delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.goalkeeper.run(SKAction.rotate(toAngle: 0, duration: 0.3))
         }
@@ -621,30 +547,35 @@ class PenaltyKickScene: SKScene {
 
     private func handleSave(at pos: CGPoint) {
         // Ball bounces back
-        let bounceBack = SKAction.move(to: CGPoint(x: size.width / 2, y: size.height * 0.4), duration: 0.3)
-        bounceBack.timingMode = .easeOut
-        let fade = SKAction.fadeOut(withDuration: 0.2)
-        ball.run(SKAction.sequence([bounceBack, fade]))
+        ball.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.move(to: CGPoint(x: size.width / 2, y: size.height * 0.4), duration: 0.3),
+                SKAction.fadeOut(withDuration: 0.3),
+                SKAction.rotate(byAngle: -.pi * 2, duration: 0.3)
+            ])
+        ]))
 
-        // Flash red
         flashScreen(color: .red)
-        shakeCamera(intensity: 6)
+        shakeCamera(intensity: 8)
 
-        // Save particles (fewer)
-        for _ in 0..<5 {
-            let p = SKShapeNode(circleOfRadius: 4)
-            p.fillColor = .orange
-            p.strokeColor = .clear
-            p.position = pos
-            p.zPosition = 20
+        // Impact sparks
+        for _ in 0..<6 {
+            let p = SKShapeNode(circleOfRadius: 3)
+            p.fillColor = [.orange, .yellow, .white][Int.random(in: 0...2)]
+            p.strokeColor = .clear; p.position = pos; p.zPosition = 20
             addChild(p)
-            let move = SKAction.moveBy(x: CGFloat.random(in: -40...40), y: CGFloat.random(in: -30...30), duration: 0.3)
-            p.run(SKAction.sequence([SKAction.group([move, SKAction.fadeOut(withDuration: 0.3)]), SKAction.removeFromParent()]))
+            let a = CGFloat.random(in: 0...(.pi * 2))
+            let d = CGFloat.random(in: 20...50)
+            p.run(SKAction.sequence([
+                SKAction.group([
+                    SKAction.moveBy(x: cos(a)*d, y: sin(a)*d, duration: 0.25),
+                    SKAction.fadeOut(withDuration: 0.25)
+                ]), SKAction.removeFromParent()
+            ]))
         }
 
-        onKickResult?(targetNodes.first(where: { $0.node.position == pos })?.character ?? "", false)
+        onKickResult?("", false)
 
-        // Reset
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             guard let self else { return }
             self.goalkeeper.run(SKAction.rotate(toAngle: 0, duration: 0.3))
@@ -656,74 +587,58 @@ class PenaltyKickScene: SKScene {
 
     private func spawnGoalParticles(at pos: CGPoint) {
         let emojis = ["⚽", "🎉", "⭐", "🔥", "✨", "💫", "🏆", "👏"]
-        for i in 0..<15 {
-            let isEmoji = i < emojis.count
-            if isEmoji {
+        for i in 0..<16 {
+            let angle = CGFloat.random(in: 0...(.pi * 2))
+            let dist = CGFloat.random(in: 50...150)
+            let duration = Double.random(in: 0.4...0.8)
+
+            if i < emojis.count {
                 let label = SKLabelNode(text: emojis[i])
-                label.fontSize = CGFloat.random(in: 20...36)
-                label.position = pos
-                label.zPosition = 25
+                label.fontSize = CGFloat.random(in: 22...38)
+                label.position = pos; label.zPosition = 25
                 addChild(label)
-                let angle = CGFloat.random(in: 0...(.pi * 2))
-                let dist = CGFloat.random(in: 60...160)
                 label.run(SKAction.sequence([
                     SKAction.group([
-                        SKAction.moveBy(x: cos(angle) * dist, y: sin(angle) * dist, duration: 0.7),
-                        SKAction.fadeOut(withDuration: 0.7),
-                        SKAction.scale(to: 0.3, duration: 0.7)
+                        SKAction.moveBy(x: cos(angle)*dist, y: sin(angle)*dist, duration: duration),
+                        SKAction.sequence([SKAction.wait(forDuration: duration * 0.5), SKAction.fadeOut(withDuration: duration * 0.5)]),
+                        SKAction.scale(to: 0.3, duration: duration)
                     ]),
                     SKAction.removeFromParent()
                 ]))
             } else {
-                let p = SKShapeNode(circleOfRadius: CGFloat.random(in: 3...7))
+                let p = SKShapeNode(circleOfRadius: CGFloat.random(in: 3...8))
                 p.fillColor = [.green, .yellow, .white, .cyan][Int.random(in: 0...3)]
                 p.strokeColor = .clear; p.position = pos; p.zPosition = 22
                 addChild(p)
-                let angle = CGFloat.random(in: 0...(.pi * 2))
-                let dist = CGFloat.random(in: 40...100)
                 p.run(SKAction.sequence([
                     SKAction.group([
-                        SKAction.moveBy(x: cos(angle) * dist, y: sin(angle) * dist, duration: 0.5),
+                        SKAction.moveBy(x: cos(angle)*dist, y: sin(angle)*dist, duration: 0.5),
                         SKAction.fadeOut(withDuration: 0.5)
-                    ]),
-                    SKAction.removeFromParent()
+                    ]), SKAction.removeFromParent()
                 ]))
             }
         }
     }
 
-    private func animateCrowd() {
-        for person in crowdNodes {
-            person.run(SKAction.sequence([
-                SKAction.moveBy(x: 0, y: CGFloat.random(in: 5...15), duration: 0.15),
-                SKAction.moveBy(x: 0, y: CGFloat.random(in: -15 ... -5), duration: 0.15),
-                SKAction.moveBy(x: 0, y: CGFloat.random(in: 3...8), duration: 0.1),
-                SKAction.moveBy(x: 0, y: CGFloat.random(in: -8 ... -3), duration: 0.1),
-            ]))
-        }
-    }
-
     func shakeCamera(intensity: CGFloat = 6) {
-        let shake = SKAction.sequence([
-            SKAction.moveBy(x: intensity, y: 0, duration: 0.03),
-            SKAction.moveBy(x: -intensity * 2, y: intensity * 0.5, duration: 0.03),
-            SKAction.moveBy(x: intensity * 1.5, y: -intensity * 0.5, duration: 0.03),
-            SKAction.moveBy(x: -intensity, y: 0, duration: 0.03),
-            SKAction.moveTo(x: size.width / 2, duration: 0.03),
-            SKAction.moveTo(y: size.height / 2, duration: 0.03),
-        ])
-        cameraNode.run(shake)
+        cameraNode.run(SKAction.sequence([
+            SKAction.moveBy(x: intensity, y: intensity * 0.5, duration: 0.025),
+            SKAction.moveBy(x: -intensity * 2, y: -intensity, duration: 0.025),
+            SKAction.moveBy(x: intensity * 1.5, y: intensity * 0.5, duration: 0.025),
+            SKAction.moveBy(x: -intensity, y: 0, duration: 0.025),
+            SKAction.moveTo(x: size.width / 2, duration: 0.025),
+            SKAction.moveTo(y: size.height / 2, duration: 0.025),
+        ]))
     }
 
     private func flashScreen(color: UIColor) {
         let flash = SKShapeNode(rect: CGRect(origin: .zero, size: size))
         flash.fillColor = color.withAlphaComponent(0.2)
-        flash.strokeColor = .clear
-        flash.zPosition = 50; flash.alpha = 0
+        flash.strokeColor = .clear; flash.zPosition = 50; flash.alpha = 0
         addChild(flash)
         flash.run(SKAction.sequence([
-            SKAction.fadeIn(withDuration: 0.05),
-            SKAction.fadeOut(withDuration: 0.15),
+            SKAction.fadeIn(withDuration: 0.04),
+            SKAction.fadeOut(withDuration: 0.2),
             SKAction.removeFromParent()
         ]))
     }
