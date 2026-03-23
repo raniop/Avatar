@@ -218,18 +218,18 @@ ${this.getAgeGameGuidelines(childAge)}`;
       sports_champion: 'football',
       superhero_training: 'football',
       dinosaur_world: 'football',
-      animal_rescue: 'football',
       space_adventure: 'basketball',
-      rainbow_land: 'basketball',
       music_studio: 'basketball',
       singing_star: 'basketball',
+      dance_party: 'basketball',
       pirate_treasure_hunt: 'car',
-      underwater_explorer: 'car',
       cooking_adventure: 'car',
-      animal_hospital: 'car',
+      rainbow_land: 'car',
       magical_forest: 'simon',
       fairy_tale_kingdom: 'simon',
-      dance_party: 'simon',
+      underwater_explorer: 'simon',
+      animal_rescue: 'simon',
+      animal_hospital: 'simon',
     };
     return mapping[theme] || 'football';
   }

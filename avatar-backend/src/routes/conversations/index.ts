@@ -807,21 +807,25 @@ function getThemeEmojis(theme: string): string[] {
 
 function getGameTypeForTheme(theme: string): 'football' | 'basketball' | 'car' | 'simon' {
   const mapping: Record<string, 'football' | 'basketball' | 'car' | 'simon'> = {
+    // Football — active/physical themes
     sports_champion: 'football',
     superhero_training: 'football',
     dinosaur_world: 'football',
-    animal_rescue: 'football',
+    // Basketball — indoor/arena themes
     space_adventure: 'basketball',
-    rainbow_land: 'basketball',
     music_studio: 'basketball',
     singing_star: 'basketball',
+    dance_party: 'basketball',
+    // Car Race — adventure/travel themes
     pirate_treasure_hunt: 'car',
-    underwater_explorer: 'car',
     cooking_adventure: 'car',
-    animal_hospital: 'car',
+    rainbow_land: 'car',
+    // Simon — nature/calm themes
     magical_forest: 'simon',
     fairy_tale_kingdom: 'simon',
-    dance_party: 'simon',
+    underwater_explorer: 'simon',
+    animal_rescue: 'simon',
+    animal_hospital: 'simon',
   };
   return mapping[theme] || 'football';
 }

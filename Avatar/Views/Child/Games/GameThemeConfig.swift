@@ -1,226 +1,169 @@
-import Foundation
+import SwiftUI
 
-/// Maps mission themes to game types, emoji items, difficulty parameters, and sort categories.
-/// All game configuration is deterministic and runs on the client — the backend only says "play a game".
+/// Maps mission themes to educational sport game types and difficulty parameters.
+/// All game configuration is deterministic and runs on the client.
 struct GameThemeConfig {
 
     // MARK: - Theme → Game Type
 
     static func gameType(for theme: String) -> MiniGameType {
         switch theme {
-        case "sports_champion", "space_adventure", "underwater_explorer":
-            return .catchGame
-        case "magical_forest", "dinosaur_world", "pirate_treasure_hunt":
-            return .matchGame
-        case "cooking_adventure", "animal_rescue", "rainbow_land", "animal_hospital":
-            return .sortGame
-        case "fairy_tale_kingdom", "superhero_training", "music_studio", "dance_party", "singing_star":
-            return .sequenceGame
+        // Football ⚽ — active/physical themes
+        case "sports_champion", "superhero_training", "dinosaur_world":
+            return .footballKick
+        // Basketball 🏀 — indoor/arena themes
+        case "space_adventure", "music_studio", "singing_star", "dance_party":
+            return .basketballShoot
+        // Car Race 🏎️ — adventure/travel themes
+        case "pirate_treasure_hunt", "cooking_adventure", "rainbow_land":
+            return .carRace
+        // Simon 🎵 — nature/calm themes
+        case "magical_forest", "fairy_tale_kingdom", "underwater_explorer", "animal_rescue", "animal_hospital":
+            return .simonPattern
         default:
-            return .catchGame
+            return .footballKick
         }
     }
 
-    // MARK: - Catch Game Items
+    // MARK: - Simon Button Colors per Theme
 
-    static func catchItems(for theme: String) -> [String] {
-        switch theme {
-        case "sports_champion":
-            return ["⚽", "🏀", "🎾", "🏐", "🏈", "⚾", "🥎", "🏓"]
-        case "space_adventure":
-            return ["⭐", "💎", "🪐", "☄️", "🌟", "💫", "🔮", "🌙"]
-        case "underwater_explorer":
-            return ["🐠", "🐟", "🐚", "💎", "🦀", "🐙", "🦈", "🐬"]
-        case "cooking_adventure":
-            return ["🍎", "🥕", "🧀", "🍕", "🍰", "🥚", "🍓", "🌽"]
-        default:
-            return ["⭐", "💎", "🎯", "🌟", "🔮", "💫", "✨", "🎪"]
-        }
-    }
-
-    // MARK: - Match Game Items (pairs)
-
-    static func matchItems(for theme: String, pairCount: Int) -> [String] {
-        let pool: [String]
+    static func simonColors(for theme: String) -> [(color: Color, emoji: String)] {
         switch theme {
         case "magical_forest":
-            pool = ["🦋", "🍄", "🦊", "🌸", "🦉", "🐿️", "🌺", "🪻"]
-        case "dinosaur_world":
-            pool = ["🦕", "🦖", "🥚", "🌋", "🦴", "🌿", "🐾", "🪨"]
-        case "pirate_treasure_hunt":
-            pool = ["⚓", "🗡️", "💰", "🏴‍☠️", "🗺️", "💎", "🦜", "🧭"]
-        case "fairy_tale_kingdom":
-            pool = ["👑", "🧚", "🦄", "🌈", "🏰", "🐉", "🪄", "🌟"]
-        default:
-            pool = ["🌟", "💎", "🎯", "🔮", "🦋", "🌸", "🎪", "✨"]
-        }
-        return Array(pool.prefix(pairCount))
-    }
-
-    // MARK: - Sort Game Categories
-
-    static func sortCategories(for theme: String) -> [SortZone] {
-        switch theme {
-        case "cooking_adventure":
             return [
-                SortZone(id: 0, emoji: "🍎", label: "Fruits", color: "FF6B6B"),
-                SortZone(id: 1, emoji: "🥕", label: "Veggies", color: "4ECDC4"),
-                SortZone(id: 2, emoji: "🧀", label: "Dairy", color: "FFE66D"),
+                (Color(hex: "9B59B6"), "🪄"),
+                (Color(hex: "2ECC71"), "🍀"),
+                (Color(hex: "E74C3C"), "🍄"),
+                (Color(hex: "3498DB"), "🦋"),
             ]
-        case "animal_rescue":
-            return [
-                SortZone(id: 0, emoji: "🌊", label: "Water", color: "0984E3"),
-                SortZone(id: 1, emoji: "🌍", label: "Land", color: "00B894"),
-                SortZone(id: 2, emoji: "☁️", label: "Sky", color: "74B9FF"),
-            ]
-        case "rainbow_land":
-            return [
-                SortZone(id: 0, emoji: "🔴", label: "Warm", color: "E74C3C"),
-                SortZone(id: 1, emoji: "🔵", label: "Cool", color: "3498DB"),
-            ]
-        case "animal_hospital":
-            return [
-                SortZone(id: 0, emoji: "💊", label: "Medicine", color: "E17055"),
-                SortZone(id: 1, emoji: "🩹", label: "Bandage", color: "FDCB6E"),
-                SortZone(id: 2, emoji: "💉", label: "Vaccine", color: "6C5CE7"),
-            ]
-        default:
-            return [
-                SortZone(id: 0, emoji: "✅", label: "Group A", color: "00B894"),
-                SortZone(id: 1, emoji: "🔵", label: "Group B", color: "0984E3"),
-            ]
-        }
-    }
-
-    static func sortItems(for theme: String, count: Int) -> [SortItem] {
-        switch theme {
-        case "cooking_adventure":
-            let all: [(String, String, Int)] = [
-                ("🍎", "Apple", 0), ("🍌", "Banana", 0), ("🍇", "Grapes", 0), ("🍓", "Strawberry", 0),
-                ("🥕", "Carrot", 1), ("🥦", "Broccoli", 1), ("🌽", "Corn", 1), ("🍅", "Tomato", 1),
-                ("🧀", "Cheese", 2), ("🥛", "Milk", 2), ("🍦", "Ice Cream", 2), ("🧈", "Butter", 2),
-            ]
-            return Array(all.prefix(count)).map { SortItem(id: UUID(), emoji: $0.0, label: $0.1, correctZone: $0.2) }
-        case "animal_rescue":
-            let all: [(String, String, Int)] = [
-                ("🐟", "Fish", 0), ("🐬", "Dolphin", 0), ("🐙", "Octopus", 0), ("🦈", "Shark", 0),
-                ("🐶", "Dog", 1), ("🐱", "Cat", 1), ("🐘", "Elephant", 1), ("🦁", "Lion", 1),
-                ("🦅", "Eagle", 2), ("🦋", "Butterfly", 2), ("🐝", "Bee", 2), ("🦜", "Parrot", 2),
-            ]
-            return Array(all.prefix(count)).map { SortItem(id: UUID(), emoji: $0.0, label: $0.1, correctZone: $0.2) }
-        case "rainbow_land":
-            let all: [(String, String, Int)] = [
-                ("🔴", "Red", 0), ("🟠", "Orange", 0), ("🟡", "Yellow", 0), ("💗", "Pink", 0),
-                ("🔵", "Blue", 1), ("🟢", "Green", 1), ("🟣", "Purple", 1), ("💙", "Teal", 1),
-            ]
-            return Array(all.prefix(count)).map { SortItem(id: UUID(), emoji: $0.0, label: $0.1, correctZone: $0.2) }
-        case "animal_hospital":
-            let all: [(String, String, Int)] = [
-                ("💊", "Pill", 0), ("🧪", "Syrup", 0), ("💉", "Shot", 2), ("🩺", "Checkup", 2),
-                ("🩹", "Bandage", 1), ("🩻", "X-Ray", 1), ("🩼", "Splint", 1), ("💊", "Vitamin", 0),
-            ]
-            return Array(all.prefix(count)).map { SortItem(id: UUID(), emoji: $0.0, label: $0.1, correctZone: $0.2) }
-        default:
-            let all: [(String, String, Int)] = [
-                ("⭐", "Star", 0), ("🌙", "Moon", 0), ("☀️", "Sun", 1), ("🌍", "Earth", 1),
-            ]
-            return Array(all.prefix(count)).map { SortItem(id: UUID(), emoji: $0.0, label: $0.1, correctZone: $0.2) }
-        }
-    }
-
-    // MARK: - Sequence Game Buttons
-
-    static func sequenceButtons(for theme: String) -> [SequenceButton] {
-        switch theme {
         case "fairy_tale_kingdom":
             return [
-                SequenceButton(id: 0, emoji: "🪄", color: "9B59B6"),
-                SequenceButton(id: 1, emoji: "✨", color: "F1C40F"),
-                SequenceButton(id: 2, emoji: "💫", color: "E91E63"),
-                SequenceButton(id: 3, emoji: "🌟", color: "3498DB"),
-            ]
-        case "superhero_training":
-            return [
-                SequenceButton(id: 0, emoji: "⚡", color: "F1C40F"),
-                SequenceButton(id: 1, emoji: "💪", color: "E74C3C"),
-                SequenceButton(id: 2, emoji: "🔥", color: "E67E22"),
-                SequenceButton(id: 3, emoji: "🛡️", color: "3498DB"),
-            ]
-        case "music_studio", "singing_star":
-            return [
-                SequenceButton(id: 0, emoji: "🎵", color: "9B59B6"),
-                SequenceButton(id: 1, emoji: "🎶", color: "E74C3C"),
-                SequenceButton(id: 2, emoji: "🎸", color: "F39C12"),
-                SequenceButton(id: 3, emoji: "🥁", color: "2ECC71"),
+                (Color(hex: "9B59B6"), "👑"),
+                (Color(hex: "F1C40F"), "✨"),
+                (Color(hex: "E91E63"), "🧚"),
+                (Color(hex: "3498DB"), "🦄"),
             ]
         case "dance_party":
             return [
-                SequenceButton(id: 0, emoji: "💃", color: "E91E63"),
-                SequenceButton(id: 1, emoji: "🕺", color: "3F51B5"),
-                SequenceButton(id: 2, emoji: "🪩", color: "FF9800"),
-                SequenceButton(id: 3, emoji: "🎶", color: "4CAF50"),
+                (Color(hex: "E91E63"), "💃"),
+                (Color(hex: "3F51B5"), "🕺"),
+                (Color(hex: "FF9800"), "🪩"),
+                (Color(hex: "4CAF50"), "🎶"),
             ]
         default:
             return [
-                SequenceButton(id: 0, emoji: "🔴", color: "E74C3C"),
-                SequenceButton(id: 1, emoji: "🟢", color: "2ECC71"),
-                SequenceButton(id: 2, emoji: "🔵", color: "3498DB"),
-                SequenceButton(id: 3, emoji: "🟡", color: "F1C40F"),
+                (Color(hex: "E74C3C"), "🔴"),
+                (Color(hex: "2ECC71"), "🟢"),
+                (Color(hex: "3498DB"), "🔵"),
+                (Color(hex: "F1C40F"), "🟡"),
             ]
+        }
+    }
+
+    // MARK: - Field/Court Colors per Theme
+
+    static func fieldColor(for theme: String) -> Color {
+        switch theme {
+        case "sports_champion": return Color(hex: "2E7D32") // green grass
+        case "superhero_training": return Color(hex: "1A237E") // dark blue
+        case "dinosaur_world": return Color(hex: "33691E") // jungle green
+        case "animal_rescue": return Color(hex: "00695C") // teal forest
+        default: return Color(hex: "2E7D32")
+        }
+    }
+
+    static func courtColor(for theme: String) -> Color {
+        switch theme {
+        case "space_adventure": return Color(hex: "1A1A2E") // dark space
+        case "rainbow_land": return Color(hex: "F06292") // pink
+        case "music_studio": return Color(hex: "4A148C") // deep purple
+        case "singing_star": return Color(hex: "311B92") // deep indigo
+        default: return Color(hex: "E65100") // basketball orange court
+        }
+    }
+
+    static func roadColor(for theme: String) -> Color {
+        switch theme {
+        case "pirate_treasure_hunt": return Color(hex: "5D4037") // brown dirt
+        case "underwater_explorer": return Color(hex: "0277BD") // ocean blue
+        case "cooking_adventure": return Color(hex: "BF360C") // kitchen tile
+        case "animal_hospital": return Color(hex: "37474F") // hospital gray
+        default: return Color(hex: "424242") // asphalt
         }
     }
 
     // MARK: - Difficulty
 
     static func difficulty(for age: Int, round: Int) -> GameDifficulty {
-        // Base difficulty by age bracket
         let base: GameDifficulty
         switch age {
         case 0...4:
             base = GameDifficulty(
-                spawnInterval: 2.0, fallDuration: 4.0, itemCount: 6,
-                timeLimit: 45, starThreshold: 3,
-                gridRows: 2, gridCols: 2, sequenceLength: 2, maxSequenceLength: 3, sortCategories: 2
+                timeLimit: 50,
+                starThreshold: 3,
+                itemCount: 5,
+                speed: 0.7,
+                wordLength: 2,
+                distractorCount: 2,
+                sequenceLength: 2,
+                maxSequenceLength: 4
             )
         case 5...6:
             base = GameDifficulty(
-                spawnInterval: 1.5, fallDuration: 3.5, itemCount: 8,
-                timeLimit: 40, starThreshold: 4,
-                gridRows: 2, gridCols: 3, sequenceLength: 2, maxSequenceLength: 4, sortCategories: 2
+                timeLimit: 45,
+                starThreshold: 4,
+                itemCount: 6,
+                speed: 0.85,
+                wordLength: 3,
+                distractorCount: 3,
+                sequenceLength: 2,
+                maxSequenceLength: 5
             )
         case 7...8:
             base = GameDifficulty(
-                spawnInterval: 1.0, fallDuration: 3.0, itemCount: 10,
-                timeLimit: 35, starThreshold: 5,
-                gridRows: 3, gridCols: 3, sequenceLength: 3, maxSequenceLength: 5, sortCategories: 3
+                timeLimit: 40,
+                starThreshold: 5,
+                itemCount: 7,
+                speed: 1.0,
+                wordLength: 4,
+                distractorCount: 3,
+                sequenceLength: 3,
+                maxSequenceLength: 6
             )
         case 9...10:
             base = GameDifficulty(
-                spawnInterval: 0.8, fallDuration: 2.5, itemCount: 12,
-                timeLimit: 30, starThreshold: 7,
-                gridRows: 3, gridCols: 4, sequenceLength: 3, maxSequenceLength: 6, sortCategories: 3
+                timeLimit: 35,
+                starThreshold: 6,
+                itemCount: 8,
+                speed: 1.15,
+                wordLength: 5,
+                distractorCount: 4,
+                sequenceLength: 3,
+                maxSequenceLength: 7
             )
-        default: // 11-12
+        default: // 11+
             base = GameDifficulty(
-                spawnInterval: 0.6, fallDuration: 2.0, itemCount: 15,
-                timeLimit: 25, starThreshold: 8,
-                gridRows: 4, gridCols: 4, sequenceLength: 4, maxSequenceLength: 7, sortCategories: 3
+                timeLimit: 30,
+                starThreshold: 7,
+                itemCount: 10,
+                speed: 1.3,
+                wordLength: 6,
+                distractorCount: 4,
+                sequenceLength: 4,
+                maxSequenceLength: 8
             )
         }
 
-        // Scale difficulty with round (round 2 is harder, round 3 is hardest)
-        let roundMultiplier = 1.0 + Double(round - 1) * 0.15
+        // Scale with round (round 2 harder, round 3 hardest)
         return GameDifficulty(
-            spawnInterval: max(0.4, base.spawnInterval / roundMultiplier),
-            fallDuration: max(1.5, base.fallDuration / roundMultiplier),
-            itemCount: base.itemCount + (round - 1) * 2,
             timeLimit: base.timeLimit,
             starThreshold: base.starThreshold + (round - 1),
-            gridRows: base.gridRows,
-            gridCols: base.gridCols,
+            itemCount: base.itemCount + (round - 1),
+            speed: base.speed + Double(round - 1) * 0.1,
+            wordLength: base.wordLength,
+            distractorCount: base.distractorCount,
             sequenceLength: base.sequenceLength + (round - 1),
-            maxSequenceLength: base.maxSequenceLength,
-            sortCategories: base.sortCategories
+            maxSequenceLength: base.maxSequenceLength
         )
     }
 }
