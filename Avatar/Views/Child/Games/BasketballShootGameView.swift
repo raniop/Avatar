@@ -97,7 +97,8 @@ struct BasketballShootGameView: View {
         }
         if let ch = challenges.first {
             let correct = ch.correctAnswers[0]
-            bbScene.setChallenge(correct: correct, distractors: Array(ch.distractors.prefix(difficulty.distractorCount)))
+            bbScene.pendingCorrect = correct
+            bbScene.pendingDistractors = Array(ch.distractors.prefix(difficulty.distractorCount))
         }
         self.scene = bbScene
         startTimer()
@@ -155,6 +156,8 @@ struct BasketballShootGameView: View {
 class BasketballScene: SKScene {
 
     var onShootResult: ((String, Bool) -> Void)?
+    var pendingCorrect: String?
+    var pendingDistractors: [String]?
     private var currentCorrect = ""
     private var currentDistractors: [String] = []
 
@@ -169,6 +172,11 @@ class BasketballScene: SKScene {
         setupCamera()
         setupCourt()
         setupBall()
+
+        if let correct = pendingCorrect, let distractors = pendingDistractors {
+            pendingCorrect = nil; pendingDistractors = nil
+            setChallenge(correct: correct, distractors: distractors)
+        }
     }
 
     private func setupCamera() {
@@ -345,6 +353,7 @@ class BasketballScene: SKScene {
     }
 
     private func resetBall() {
+        guard ball != nil else { return }
         ball.removeAction(forKey: "shoot")
         ball.position = ballRestPos
         ball.setScale(1.0); ball.alpha = 1.0

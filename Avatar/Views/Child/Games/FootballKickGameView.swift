@@ -101,7 +101,8 @@ struct FootballKickGameView: View {
         if let ch = challenges.first {
             let correct = ch.correctAnswers[0]
             let distractors = Array(ch.distractors.prefix(difficulty.distractorCount))
-            kickScene.setChallenge(correct: correct, distractors: distractors)
+            kickScene.pendingCorrect = correct
+            kickScene.pendingDistractors = distractors
         }
         self.scene = kickScene
         startTimer()
@@ -162,6 +163,8 @@ class PenaltyKickScene: SKScene {
 
     var gameSpeed: Double = 1.0
     var onKickResult: ((String, Bool) -> Void)?
+    var pendingCorrect: String?
+    var pendingDistractors: [String]?
 
     private var currentCorrect = ""
     private var currentDistractors: [String] = []
@@ -187,6 +190,12 @@ class PenaltyKickScene: SKScene {
         setupBall()
         setupCrowd()
         startGoalkeeperSway()
+
+        // Apply pending challenge if set before didMove
+        if let correct = pendingCorrect, let distractors = pendingDistractors {
+            pendingCorrect = nil; pendingDistractors = nil
+            setChallenge(correct: correct, distractors: distractors)
+        }
     }
 
     // MARK: - Setup
@@ -502,6 +511,7 @@ class PenaltyKickScene: SKScene {
     }
 
     private func resetBall() {
+        guard ball != nil, goalkeeper != nil else { return }
         ball.removeAllActions()
         ball.position = CGPoint(x: size.width / 2, y: size.height * 0.22)
         ball.setScale(1.0)

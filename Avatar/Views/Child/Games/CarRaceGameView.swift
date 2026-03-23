@@ -118,7 +118,8 @@ struct CarRaceGameView: View {
         if let ch = challenges.first {
             let correct = ch.correctAnswers.count > 1 ? ch.correctAnswers[0] : ch.correctAnswers[0]
             let distractors = Array(ch.distractors.prefix(difficulty.distractorCount))
-            raceScene.setChallenge(correct: correct, distractors: distractors)
+            raceScene.pendingCorrect = correct
+            raceScene.pendingDistractors = distractors
         }
 
         self.scene = raceScene
@@ -201,6 +202,8 @@ class CarRaceScene: SKScene {
 
     var gameSpeed: Double = 1.0
     var onCollect: ((String, Bool) -> Void)?
+    var pendingCorrect: String?
+    var pendingDistractors: [String]?
 
     private var currentCorrect: String = ""
     private var currentDistractors: [String] = []
@@ -238,6 +241,11 @@ class CarRaceScene: SKScene {
 
         roadSpeed = CGFloat(6.0 * gameSpeed)
         spawnInterval = max(0.7, 1.4 / gameSpeed)
+
+        if let correct = pendingCorrect, let distractors = pendingDistractors {
+            pendingCorrect = nil; pendingDistractors = nil
+            setChallenge(correct: correct, distractors: distractors)
+        }
     }
 
     private func setupCamera() {
