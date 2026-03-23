@@ -17,7 +17,7 @@ export interface AdventureChoice {
 }
 
 export interface MiniGameConfig {
-  type: 'catch' | 'match' | 'sort' | 'sequence';
+  type: 'football' | 'basketball' | 'car' | 'simon';
   round: number;
 }
 
@@ -367,7 +367,7 @@ export class ConversationEngine {
       : '';
 
     const jsonFormat = hasMission
-      ? 'Output JSON with adventure state: {"text": "your response", "emotion": "emotion_name", "adventure": {"sceneIndex": N, "sceneName": "...", "sceneEmojis": ["..."], "interactionType": "miniGame|voice|celebrate", "choices": null, "miniGame": {"type": "catch|match|sort|sequence", "round": N} or null, "starsEarned": N, "isSceneComplete": false, "isAdventureComplete": false, "collectible": null}}'
+      ? 'Output JSON with adventure state: {"text": "your response", "emotion": "emotion_name", "adventure": {"sceneIndex": N, "sceneName": "...", "sceneEmojis": ["..."], "interactionType": "miniGame|voice|celebrate", "choices": null, "miniGame": {"type": "football|basketball|car|simon", "round": N} or null, "starsEarned": N, "isSceneComplete": false, "isAdventureComplete": false, "collectible": null}}'
       : 'Output JSON: {"text": "your response", "emotion": "emotion_name"}';
 
     if (questionWeaveHint || safetyNote) {
@@ -463,9 +463,9 @@ export class ConversationEngine {
               : null,
             miniGame: parsed.adventure.miniGame && typeof parsed.adventure.miniGame === 'object'
               ? {
-                  type: ['catch', 'match', 'sort', 'sequence'].includes(parsed.adventure.miniGame.type)
+                  type: ['football', 'basketball', 'car', 'simon'].includes(parsed.adventure.miniGame.type)
                     ? parsed.adventure.miniGame.type
-                    : 'catch',
+                    : 'football',
                   round: parsed.adventure.miniGame.round ?? 1,
                 }
               : null,

@@ -79,6 +79,48 @@ struct AdventureView: View {
                 .allowsHitTesting(false)
             }
 
+            // Error overlay
+            if case .error(let message) = viewModel.phase {
+                ZStack {
+                    Color.black.opacity(0.6)
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 20) {
+                        Text("😕")
+                            .font(.system(size: 64))
+
+                        Text(L == .hebrew ? "משהו השתבש..." : "Something went wrong...")
+                            .font(AppTheme.Fonts.title)
+                            .foregroundStyle(.white)
+
+                        Text(L == .hebrew ? "לא הצלחנו להתחיל את ההרפתקה" : "Could not start the adventure")
+                            .font(AppTheme.Fonts.childBody)
+                            .foregroundStyle(.white.opacity(0.8))
+
+                        Button {
+                            Task { await viewModel.retryAdventure() }
+                        } label: {
+                            Text(L == .hebrew ? "נסה שוב" : "Try Again")
+                                .font(AppTheme.Fonts.bodyBold)
+                                .foregroundStyle(AppTheme.Colors.primary)
+                                .padding(.horizontal, 32)
+                                .padding(.vertical, 14)
+                                .background(.white)
+                                .clipShape(Capsule())
+                        }
+
+                        Button {
+                            Task { await viewModel.endAdventure() }
+                        } label: {
+                            Text(L == .hebrew ? "חזרה" : "Go Back")
+                                .font(AppTheme.Fonts.bodyBold)
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
+                    }
+                }
+                .transition(.opacity)
+            }
+
             // Mini-game full-screen overlay
             if viewModel.showMiniGame, let config = viewModel.adventureState?.miniGame {
                 let gameType = GameThemeConfig.gameType(for: viewModel.mission.theme)
@@ -87,6 +129,7 @@ struct AdventureView: View {
                     theme: viewModel.mission.theme,
                     round: config.round,
                     age: viewModel.child.age,
+                    locale: L,
                     onComplete: { result in
                         viewModel.reportGameResult(result)
                     }

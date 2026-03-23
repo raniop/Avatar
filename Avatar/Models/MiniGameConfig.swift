@@ -1,12 +1,20 @@
 import Foundation
+import SwiftUI
 
 // MARK: - Game Types
 
 enum MiniGameType: String, Codable, Equatable {
-    case catchGame = "catch"
-    case matchGame = "match"
-    case sortGame = "sort"
-    case sequenceGame = "sequence"
+    case footballKick = "football"
+    case basketballShoot = "basketball"
+    case carRace = "car"
+    case simonPattern = "simon"
+
+    // Handle unknown/legacy game types from backend (e.g. "catch", "match", "sort", "sequence")
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        self = MiniGameType(rawValue: rawValue) ?? .footballKick
+    }
 }
 
 // MARK: - Game Config (from backend, minimal)
@@ -19,16 +27,14 @@ struct MiniGameConfig: Codable, Equatable {
 // MARK: - Game Difficulty (computed on client from age + round)
 
 struct GameDifficulty {
-    let spawnInterval: Double      // Catch: seconds between spawns
-    let fallDuration: Double       // Catch: seconds for item to fall across screen
-    let itemCount: Int             // Total items in the round
-    let timeLimit: Int             // Seconds
+    let timeLimit: Int             // Seconds per round (45-60)
     let starThreshold: Int         // Score needed for star
-    let gridRows: Int              // Match: grid rows
-    let gridCols: Int              // Match: grid cols
-    let sequenceLength: Int        // Sequence: starting length
-    let maxSequenceLength: Int     // Sequence: max length
-    let sortCategories: Int        // Sort: number of target zones (2 or 3)
+    let itemCount: Int             // Number of challenges per round
+    let speed: Double              // Game-specific speed factor (1.0 = normal)
+    let wordLength: Int            // Max word length for spelling games
+    let distractorCount: Int       // Number of wrong options shown
+    let sequenceLength: Int        // Simon: starting pattern length
+    let maxSequenceLength: Int     // Simon: max pattern length
 }
 
 // MARK: - Game Result
@@ -40,48 +46,54 @@ struct GameResult: Equatable {
     let earnedStar: Bool
 }
 
-// MARK: - Falling Item (Catch Game)
+// MARK: - Football Target
 
-struct FallingItem: Identifiable, Equatable {
+struct FootballTarget: Identifiable, Equatable {
     let id: UUID
-    let emoji: String
-    var x: CGFloat
-    var y: CGFloat
-    var caught: Bool = false
-    var missed: Bool = false
+    let character: String
+    let isCorrect: Bool
+    var position: CGPoint
+    var hit: Bool = false
+
+    static func == (lhs: FootballTarget, rhs: FootballTarget) -> Bool {
+        lhs.id == rhs.id && lhs.hit == rhs.hit
+    }
 }
 
-// MARK: - Match Card (Match Game)
+// MARK: - Letter Ball (Basketball)
 
-struct MatchCard: Identifiable, Equatable {
+struct LetterBall: Identifiable, Equatable {
     let id: UUID
-    let emoji: String
-    let pairIndex: Int
-    var faceUp: Bool = false
-    var matched: Bool = false
+    let character: String
+    let isCorrect: Bool
+    var thrown: Bool = false
+    var scored: Bool = false
+
+    static func == (lhs: LetterBall, rhs: LetterBall) -> Bool {
+        lhs.id == rhs.id && lhs.thrown == rhs.thrown && lhs.scored == rhs.scored
+    }
 }
 
-// MARK: - Sort Item (Sort Game)
+// MARK: - Road Item (Car Race)
 
-struct SortItem: Identifiable, Equatable {
+struct RoadItem: Identifiable, Equatable {
     let id: UUID
-    let emoji: String
-    let label: String
-    let correctZone: Int  // Index of the correct target zone
+    let character: String
+    let isCorrect: Bool
+    var laneIndex: Int       // 0, 1, or 2
+    var yOffset: CGFloat     // scrolls toward player
+    var collected: Bool = false
+
+    static func == (lhs: RoadItem, rhs: RoadItem) -> Bool {
+        lhs.id == rhs.id && lhs.collected == rhs.collected
+    }
 }
 
-struct SortZone: Identifiable, Equatable {
+// MARK: - Simon Button
+
+struct SimonButton: Identifiable, Equatable {
     let id: Int
+    let color: Color
     let emoji: String
-    let label: String
-    let color: String  // hex color
-}
-
-// MARK: - Sequence Button (Sequence Game)
-
-struct SequenceButton: Identifiable, Equatable {
-    let id: Int
-    let emoji: String
-    let color: String  // hex color
     var isLit: Bool = false
 }

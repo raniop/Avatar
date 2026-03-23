@@ -122,9 +122,9 @@ ${mission.narrativePrompt}
   /**
    * Layer 2B: Adventure game structure (only for mission-based conversations).
    *
-   * Adventures are built around REAL mini-games (catch, match, sort, sequence)
+   * Adventures are built around REAL educational sport mini-games (football, basketball, car, simon)
    * that run entirely on the iOS client.  The avatar narrates between rounds
-   * and weaves in parent questions.
+   * and weaves in parent questions. Games teach letters, words, and math.
    */
   private buildAdventureLayer(context: PromptContext): string {
     if (!context.mission) return '';
@@ -215,23 +215,23 @@ ${this.getAgeGameGuidelines(childAge)}`;
    */
   private getGameTypeForTheme(theme: string): string {
     const mapping: Record<string, string> = {
-      sports_champion: 'catch',
-      space_adventure: 'catch',
-      underwater_explorer: 'catch',
-      magical_forest: 'match',
-      dinosaur_world: 'match',
-      pirate_treasure_hunt: 'match',
-      cooking_adventure: 'sort',
-      animal_rescue: 'sort',
-      rainbow_land: 'sort',
-      animal_hospital: 'sort',
-      fairy_tale_kingdom: 'sequence',
-      superhero_training: 'sequence',
-      music_studio: 'sequence',
-      dance_party: 'sequence',
-      singing_star: 'sequence',
+      sports_champion: 'football',
+      superhero_training: 'football',
+      dinosaur_world: 'football',
+      animal_rescue: 'football',
+      space_adventure: 'basketball',
+      rainbow_land: 'basketball',
+      music_studio: 'basketball',
+      singing_star: 'basketball',
+      pirate_treasure_hunt: 'car',
+      underwater_explorer: 'car',
+      cooking_adventure: 'car',
+      animal_hospital: 'car',
+      magical_forest: 'simon',
+      fairy_tale_kingdom: 'simon',
+      dance_party: 'simon',
     };
-    return mapping[theme] || 'catch';
+    return mapping[theme] || 'football';
   }
 
   /**
@@ -244,21 +244,24 @@ ${this.getAgeGameGuidelines(childAge)}`;
 - Use simple, concrete words. No abstract concepts.
 - Be extra encouraging and celebratory after each round.
 - Skip the voice break between rounds — go directly from reaction to next game round.
-- Use lots of sound effects and silly words.`;
+- Use lots of sound effects and silly words.
+- Games focus on letter recognition. The child identifies individual letters.`;
     }
 
     if (age <= 6) {
       return `**AGE 5-6 GUIDELINES:**
 - Narration: 2-3 short sentences.
 - Include ONE voice break to ask a parent question (between round 1 and 2 or round 2 and 3).
-- Use encouraging, playful language.`;
+- Use encouraging, playful language.
+- Games focus on simple word spelling. The child kicks/shoots/collects letters to build short words.`;
     }
 
     if (age <= 8) {
       return `**AGE 7-8 GUIDELINES:**
 - Narration: 2-3 sentences with richer vocabulary.
 - Include 1-2 voice breaks for parent questions.
-- Can reference the game mechanics in narration ("Wow, you caught every single one!").`;
+- Can reference the game mechanics in narration ("Wow, you spelled every word!").
+- Games include picture-to-word challenges and basic math.`;
     }
 
     if (age <= 10) {

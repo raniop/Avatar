@@ -114,9 +114,12 @@ final class AdventureViewModel {
             let opening = response.openingMessage
             conversationId = convId
 
+            print("AdventureVM: Opening text='\(opening.textContent.prefix(80))' hasAudioData=\(opening.audioData != nil) hasAudioUrl=\(opening.audioUrl != nil) hasAdventure=\(opening.adventure != nil)")
+
             // Set initial adventure state from opening response
             if let adventure = opening.adventure {
                 adventureState = adventure
+                print("AdventureVM: Adventure state: scene=\(adventure.sceneIndex) interaction=\(adventure.interactionType) hasMiniGame=\(adventure.miniGame != nil)")
             }
 
             // Set the opening story text
@@ -145,10 +148,11 @@ final class AdventureViewModel {
 
                 // No inline audio — wait for WebSocket audio, but don't wait forever
                 Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .seconds(8))
+                    try? await Task.sleep(for: .seconds(4))
                     guard let self, self.pendingOpeningAudioMessageId != nil else { return }
-                    // Audio never arrived, clear pending
+                    // Audio never arrived — show text immediately and clear pending
                     self.pendingOpeningAudioMessageId = nil
+                    self.stopTypewriter()
                 }
             }
 
@@ -217,6 +221,23 @@ final class AdventureViewModel {
         audioEngine.state = .processing
         isAvatarThinking = true
         webSocket.sendTextMessage(textContent: trimmed)
+    }
+
+    func retryAdventure() async {
+        stopTypewriter()
+        audioEngine.reset()
+        webSocket.leaveConversation()
+        webSocket.disconnect()
+        phase = .loading
+        showMiniGame = false
+        adventureState = nil
+        storyText = ""
+        starsEarned = 0
+        scenesCompleted = [false, false, false]
+        showCelebration = false
+        earnedCollectible = nil
+        conversationId = nil
+        await startAdventure()
     }
 
     func endAdventure() async {
@@ -558,8 +579,9 @@ final class AdventureViewModel {
         typewriterWaitingForAudio = true
 
         Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(15))
+            try? await Task.sleep(for: .seconds(5))
             guard let self, self.typewriterMessageId == messageId else { return }
+            // Audio never arrived — show text immediately
             self.stopTypewriter()
         }
     }

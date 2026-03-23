@@ -805,25 +805,25 @@ function getThemeEmojis(theme: string): string[] {
 
 // ── Theme → Game type mapping (must match iOS GameThemeConfig) ────
 
-function getGameTypeForTheme(theme: string): 'catch' | 'match' | 'sort' | 'sequence' {
-  const mapping: Record<string, 'catch' | 'match' | 'sort' | 'sequence'> = {
-    sports_champion: 'catch',
-    space_adventure: 'catch',
-    underwater_explorer: 'catch',
-    magical_forest: 'match',
-    dinosaur_world: 'match',
-    pirate_treasure_hunt: 'match',
-    cooking_adventure: 'sort',
-    animal_rescue: 'sort',
-    rainbow_land: 'sort',
-    animal_hospital: 'sort',
-    fairy_tale_kingdom: 'sequence',
-    superhero_training: 'sequence',
-    music_studio: 'sequence',
-    dance_party: 'sequence',
-    singing_star: 'sequence',
+function getGameTypeForTheme(theme: string): 'football' | 'basketball' | 'car' | 'simon' {
+  const mapping: Record<string, 'football' | 'basketball' | 'car' | 'simon'> = {
+    sports_champion: 'football',
+    superhero_training: 'football',
+    dinosaur_world: 'football',
+    animal_rescue: 'football',
+    space_adventure: 'basketball',
+    rainbow_land: 'basketball',
+    music_studio: 'basketball',
+    singing_star: 'basketball',
+    pirate_treasure_hunt: 'car',
+    underwater_explorer: 'car',
+    cooking_adventure: 'car',
+    animal_hospital: 'car',
+    magical_forest: 'simon',
+    fairy_tale_kingdom: 'simon',
+    dance_party: 'simon',
   };
-  return mapping[theme] || 'catch';
+  return mapping[theme] || 'football';
 }
 
 // ── Fast opening message templates (no AI call needed) ────────────
