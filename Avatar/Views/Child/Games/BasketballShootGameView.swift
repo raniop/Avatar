@@ -10,14 +10,24 @@ struct BasketballShootGameView: View {
     @Binding var timeRemaining: Int
     let onTimeUp: () -> Void
 
+    // MARK: - Game State
+
     @State private var challenges: [EducationalChallenge] = []
     @State private var currentIndex = 0
     @State private var letterIndex = 0
-    @State private var balls: [LetterBall] = []
-    @State private var feedback: String? = nil
-    @State private var hoopScale: CGFloat = 1.0
+    @State private var hoops: [BasketballHoop] = []
     @State private var timerRunning = false
-    @State private var shootingBallId: UUID? = nil
+    @State private var feedback: String? = nil
+
+    // MARK: - Animation State
+
+    @State private var ballShooting = false
+    @State private var ballTargetX: CGFloat = 0
+    @State private var ballArcPhase: CGFloat = 0     // 0→1 for arc animation
+    @State private var scoredHoopId: UUID? = nil
+    @State private var missedHoopId: UUID? = nil
+    @State private var showSwoosh = false
+    @State private var ballBounceAngle: CGFloat = 0
 
     private var currentChallenge: EducationalChallenge? {
         guard currentIndex < challenges.count else { return nil }
@@ -30,35 +40,34 @@ struct BasketballShootGameView: View {
         GeometryReader { geo in
             ZStack {
                 // Court background
-                LinearGradient(
-                    colors: [courtColor, courtColor.opacity(0.6)],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .ignoresSafeArea()
-
-                // Court lines
-                courtLines(in: geo.size)
+                courtBackground(in: geo.size)
 
                 VStack(spacing: 0) {
-                    // Hoop area
-                    hoopView
-                        .padding(.top, 16)
-
                     // Prompt
                     promptView
+                        .padding(.top, 4)
+
+                    // Hoops area — multiple hoops with letters
+                    hoopsArea(in: geo.size)
                         .padding(.top, 12)
 
                     Spacer()
 
-                    // Balls
-                    ballsView
-                        .padding(.bottom, 50)
+                    // Ball at bottom
+                    ballView(in: geo.size)
+
+                    Spacer().frame(height: 24)
+                }
+
+                // Swoosh effect
+                if showSwoosh {
+                    swooshEffect(in: geo.size)
                 }
 
                 // Feedback overlay
                 if let feedback {
                     Text(feedback)
-                        .font(.system(size: 64, weight: .black, design: .rounded))
+                        .font(.system(size: 60, weight: .black, design: .rounded))
                         .foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.5), radius: 8)
                         .transition(.scale.combined(with: .opacity))
@@ -68,32 +77,41 @@ struct BasketballShootGameView: View {
         }
     }
 
-    // MARK: - Hoop
+    // MARK: - Court Background
 
     @ViewBuilder
-    private var hoopView: some View {
-        VStack(spacing: 2) {
-            // Backboard
-            RoundedRectangle(cornerRadius: 4)
-                .fill(.white.opacity(0.3))
-                .frame(width: 80, height: 50)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(.white.opacity(0.6), lineWidth: 2)
+    private func courtBackground(in size: CGSize) -> some View {
+        ZStack {
+            // Main court gradient
+            LinearGradient(
+                colors: [courtColor, courtColor.opacity(0.6)],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            // Court floor (wooden look at bottom half)
+            VStack {
+                Spacer()
+                LinearGradient(
+                    colors: [Color(hex: "8D6E63").opacity(0.3), Color(hex: "5D4037").opacity(0.4)],
+                    startPoint: .top, endPoint: .bottom
                 )
+                .frame(height: size.height * 0.45)
+            }
+            .ignoresSafeArea()
 
-            // Rim
-            Ellipse()
-                .stroke(Color.orange, lineWidth: 4)
-                .frame(width: 60, height: 16)
+            // Three-point arc
+            HalfCircleArc()
+                .stroke(.white.opacity(0.12), lineWidth: 2)
+                .frame(width: size.width * 0.75, height: size.height * 0.25)
+                .position(x: size.width / 2, y: size.height * 0.58)
 
-            // Net
-            Text("🥅")
-                .font(.system(size: 20))
-                .opacity(0.5)
+            // Free throw line
+            Rectangle()
+                .fill(.white.opacity(0.1))
+                .frame(width: size.width * 0.5, height: 2)
+                .position(x: size.width / 2, y: size.height * 0.55)
         }
-        .scaleEffect(hoopScale)
-        .animation(.spring(response: 0.3), value: hoopScale)
     }
 
     // MARK: - Prompt
@@ -101,96 +119,180 @@ struct BasketballShootGameView: View {
     @ViewBuilder
     private var promptView: some View {
         if let challenge = currentChallenge {
-            VStack(spacing: 6) {
+            VStack(spacing: 4) {
                 if let emoji = challenge.promptEmoji {
                     Text(emoji)
-                        .font(.system(size: 40))
+                        .font(.system(size: 36))
                 }
                 if challenge.correctAnswers.count > 1 {
-                    // Word spelling
-                    HStack(spacing: 4) {
+                    HStack(spacing: 3) {
                         ForEach(Array(challenge.correctAnswers.enumerated()), id: \.offset) { i, letter in
                             Text(i < letterIndex ? letter : "⬜")
-                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .font(.system(size: 22, weight: .bold, design: .rounded))
                                 .foregroundStyle(i == letterIndex ? Color.yellow : .white)
                         }
                     }
-                    Text(locale == .hebrew ? "זרוק את האות הנכונה! 🏀" : "Shoot the right letter! 🏀")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.7))
                 } else if !challenge.prompt.isEmpty {
                     Text(challenge.prompt)
-                        .font(.system(size: 32, weight: .black, design: .rounded))
+                        .font(.system(size: 30, weight: .black, design: .rounded))
                         .foregroundStyle(.white)
-                    Text(locale == .hebrew ? "זרוק את האות! 🏀" : "Shoot the letter! 🏀")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.7))
+                        .shadow(color: .black.opacity(0.3), radius: 4)
                 }
+                Text(locale == .hebrew ? "זרוק לסל הנכון!" : "Shoot the right hoop!")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.6))
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 8)
-            .background(.black.opacity(0.3))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(.black.opacity(0.35))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
         }
     }
 
-    // MARK: - Balls
+    // MARK: - Hoops Area
 
     @ViewBuilder
-    private var ballsView: some View {
-        let columns = min(balls.count, 4)
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: columns), spacing: 12) {
-            ForEach(balls) { ball in
-                Button {
-                    shootBall(ball)
-                } label: {
-                    ZStack {
-                        // Basketball
-                        Circle()
-                            .fill(
-                                RadialGradient(
-                                    colors: [Color.orange, Color(hex: "E65100")],
-                                    center: .center,
-                                    startRadius: 0,
-                                    endRadius: 35
-                                )
-                            )
-                            .frame(width: 70, height: 70)
-                            .overlay(
-                                Circle()
-                                    .stroke(.black.opacity(0.3), lineWidth: 2)
-                            )
+    private func hoopsArea(in size: CGSize) -> some View {
+        let columns = hoops.count <= 3 ? hoops.count : (hoops.count <= 4 ? 2 : 3)
+        let rows = (hoops.count + columns - 1) / columns
+        let spacing: CGFloat = 16
+        let hoopWidth = min(110, (size.width - spacing * CGFloat(columns + 1)) / CGFloat(columns))
 
-                        // Letter on ball
-                        Text(ball.character)
-                            .font(.system(size: age <= 5 ? 32 : 26, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.5), radius: 2)
+        VStack(spacing: spacing + 10) {
+            ForEach(0..<rows, id: \.self) { row in
+                HStack(spacing: spacing) {
+                    ForEach(0..<columns, id: \.self) { col in
+                        let idx = row * columns + col
+                        if idx < hoops.count {
+                            hoopView(hoops[idx], width: hoopWidth)
+                        }
                     }
                 }
-                .disabled(ball.thrown || shootingBallId != nil)
-                .opacity(ball.thrown ? 0.3 : 1.0)
-                .scaleEffect(ball.thrown ? 0.5 : 1.0)
-                .offset(y: shootingBallId == ball.id ? -200 : 0)
-                .animation(.spring(response: 0.4), value: ball.thrown)
-                .animation(.easeOut(duration: 0.3), value: shootingBallId)
             }
         }
-        .padding(.horizontal, 24)
     }
-
-    // MARK: - Court Lines
 
     @ViewBuilder
-    private func courtLines(in size: CGSize) -> some View {
-        // Free-throw semicircle
-        Circle()
-            .stroke(.white.opacity(0.1), lineWidth: 2)
-            .frame(width: 160, height: 160)
-            .position(x: size.width / 2, y: size.height * 0.3)
+    private func hoopView(_ hoop: BasketballHoop, width: CGFloat) -> some View {
+        let isScored = scoredHoopId == hoop.id
+        let isMissed = missedHoopId == hoop.id
+
+        Button {
+            shootAtHoop(hoop)
+        } label: {
+            VStack(spacing: 0) {
+                // Backboard with letter
+                ZStack {
+                    // Backboard
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(.white.opacity(isScored ? 0.5 : 0.25))
+                        .frame(width: width * 0.85, height: width * 0.55)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(.white.opacity(0.5), lineWidth: 2)
+                        )
+
+                    // Letter on backboard
+                    Text(hoop.character)
+                        .font(.system(size: age <= 5 ? 34 : 28, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.4), radius: 2)
+                }
+
+                // Rim
+                Ellipse()
+                    .stroke(
+                        isScored ? Color.green : (isMissed ? Color.red : Color.orange),
+                        lineWidth: 4
+                    )
+                    .frame(width: width * 0.55, height: 14)
+                    .shadow(color: isScored ? .green.opacity(0.5) : .clear, radius: 6)
+
+                // Net (lines hanging down)
+                netLines(width: width * 0.5)
+                    .frame(height: 20)
+            }
+            .scaleEffect(isScored ? 1.1 : (isMissed ? 0.95 : 1.0))
+            .animation(.spring(response: 0.3), value: isScored)
+            .animation(.spring(response: 0.3), value: isMissed)
+        }
+        .disabled(ballShooting)
     }
 
-    // MARK: - Logic
+    @ViewBuilder
+    private func netLines(width: CGFloat) -> some View {
+        Canvas { context, size in
+            let strings = 5
+            let spacing = size.width / CGFloat(strings - 1)
+            for i in 0..<strings {
+                let x = CGFloat(i) * spacing
+                var path = Path()
+                path.move(to: CGPoint(x: x, y: 0))
+                // Slight curve inward
+                let midX = size.width / 2
+                let pull = (x - midX) * -0.3
+                path.addQuadCurve(
+                    to: CGPoint(x: x + pull, y: size.height),
+                    control: CGPoint(x: x + pull * 0.5, y: size.height * 0.5)
+                )
+                context.stroke(path, with: .color(.white.opacity(0.2)), lineWidth: 1)
+            }
+        }
+        .frame(width: width)
+    }
+
+    // MARK: - Ball
+
+    @ViewBuilder
+    private func ballView(in size: CGSize) -> some View {
+        ZStack {
+            // Basketball
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [Color(hex: "FF8F00"), Color(hex: "E65100")],
+                        center: .topLeading,
+                        startRadius: 0,
+                        endRadius: 40
+                    )
+                )
+                .frame(width: 56, height: 56)
+                .overlay(
+                    // Ball lines
+                    ZStack {
+                        // Horizontal line
+                        Rectangle()
+                            .fill(.black.opacity(0.15))
+                            .frame(height: 2)
+                        // Vertical line
+                        Rectangle()
+                            .fill(.black.opacity(0.15))
+                            .frame(width: 2)
+                    }
+                    .clipShape(Circle())
+                )
+                .overlay(
+                    Circle().stroke(.black.opacity(0.2), lineWidth: 2)
+                )
+                .shadow(color: .black.opacity(0.3), radius: 4, y: 3)
+        }
+        .scaleEffect(ballShooting ? 0.3 : 1.0)
+        .offset(y: ballShooting ? -(size.height * 0.5) : 0)
+        .opacity(ballShooting ? 0.0 : 1.0)
+        .animation(.easeOut(duration: 0.4), value: ballShooting)
+    }
+
+    // MARK: - Swoosh Effect
+
+    @ViewBuilder
+    private func swooshEffect(in size: CGSize) -> some View {
+        Text("💫")
+            .font(.system(size: 44))
+            .position(x: size.width / 2, y: size.height * 0.3)
+            .transition(.scale.combined(with: .opacity))
+    }
+
+    // MARK: - Game Logic
 
     private func setupGame() {
         let contentType = EducationalContent.defaultContentType(locale: locale, age: age)
@@ -204,11 +306,11 @@ struct BasketballShootGameView: View {
         score = 0
         currentIndex = 0
         letterIndex = 0
-        loadBalls()
+        loadHoops()
         startTimer()
     }
 
-    private func loadBalls() {
+    private func loadHoops() {
         guard let challenge = currentChallenge else { return }
 
         let currentCorrect: String
@@ -224,43 +326,40 @@ struct BasketballShootGameView: View {
         }
         options.shuffle()
 
-        balls = options.map { char in
-            LetterBall(
+        hoops = options.map { char in
+            BasketballHoop(
                 id: UUID(),
                 character: char,
                 isCorrect: char == currentCorrect
             )
         }
+
+        scoredHoopId = nil
+        missedHoopId = nil
     }
 
-    private func shootBall(_ ball: LetterBall) {
-        guard shootingBallId == nil else { return }
+    private func shootAtHoop(_ hoop: BasketballHoop) {
+        guard !ballShooting else { return }
 
-        shootingBallId = ball.id
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        ballShooting = true
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            if let idx = balls.firstIndex(where: { $0.id == ball.id }) {
-                withAnimation(.spring(response: 0.3)) {
-                    balls[idx].thrown = true
-                    balls[idx].scored = ball.isCorrect
-                }
-            }
-            shootingBallId = nil
-
-            if ball.isCorrect {
-                handleCorrectShot()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            if hoop.isCorrect {
+                handleScore(hoop)
             } else {
-                handleWrongShot()
+                handleMiss(hoop)
             }
         }
     }
 
-    private func handleCorrectShot() {
+    private func handleScore(_ hoop: BasketballHoop) {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        withAnimation(.spring(response: 0.2)) { hoopScale = 1.2 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            withAnimation(.spring(response: 0.2)) { hoopScale = 1.0 }
+
+        scoredHoopId = hoop.id
+        withAnimation(.spring(response: 0.3)) { showSwoosh = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation { showSwoosh = false }
         }
 
         guard let challenge = currentChallenge else { return }
@@ -269,43 +368,51 @@ struct BasketballShootGameView: View {
             letterIndex += 1
             if letterIndex >= challenge.correctAnswers.count {
                 score += 1
-                showFeedback("🏀")
+                showFeedback("🏀 סל!")
                 advanceChallenge()
             } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    loadBalls()
+                showFeedback("👍")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    ballShooting = false
+                    loadHoops()
                 }
             }
         } else {
             score += 1
-            showFeedback("🏀")
+            showFeedback("🏀 סל!")
             advanceChallenge()
         }
     }
 
-    private func handleWrongShot() {
+    private func handleMiss(_ hoop: BasketballHoop) {
         UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-        showFeedback("✖️")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            loadBalls()
+        missedHoopId = hoop.id
+        showFeedback("🧱")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            ballShooting = false
+            missedHoopId = nil
+            loadHoops()
         }
     }
 
     private func advanceChallenge() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            ballShooting = false
+            scoredHoopId = nil
             currentIndex += 1
             letterIndex = 0
             if currentIndex >= challenges.count {
                 onTimeUp()
             } else {
-                loadBalls()
+                loadHoops()
             }
         }
     }
 
     private func showFeedback(_ text: String) {
         withAnimation(.spring(response: 0.3)) { feedback = text }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             withAnimation { feedback = nil }
         }
     }
@@ -320,5 +427,29 @@ struct BasketballShootGameView: View {
                 if timerRunning { onTimeUp() }
             }
         }
+    }
+}
+
+// MARK: - Basketball Hoop Model
+
+struct BasketballHoop: Identifiable {
+    let id: UUID
+    let character: String
+    let isCorrect: Bool
+}
+
+// MARK: - Half Circle Arc Shape
+
+private struct HalfCircleArc: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.addArc(
+            center: CGPoint(x: rect.midX, y: 0),
+            radius: rect.width / 2,
+            startAngle: .degrees(0),
+            endAngle: .degrees(180),
+            clockwise: false
+        )
+        return path
     }
 }
