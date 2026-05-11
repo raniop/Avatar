@@ -8,6 +8,8 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
 
     var onPlaybackComplete: (() -> Void)?
     var onAmplitudeUpdate: ((Float) -> Void)?
+    /// Fires once after prepareToPlay(), reporting actual audio duration in seconds
+    var onDurationReady: ((TimeInterval) -> Void)?
 
     private var player: AVAudioPlayer?
     private var amplitudeTimer: Timer?
@@ -17,6 +19,7 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
         player.delegate = self
         player.isMeteringEnabled = true
         player.prepareToPlay()
+        onDurationReady?(player.duration)
         player.play()
 
         self.player = player

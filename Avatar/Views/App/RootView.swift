@@ -55,11 +55,22 @@ struct RootView: View {
                     .transition(.opacity)
             }
         }
+        .preferredColorScheme(.light)
         .animation(.easeInOut(duration: 0.3), value: showSplash)
         // Re-run whenever auth state changes so we catch the loading→authenticated transition
         .task(id: authManager.state) {
-            if case .authenticated = authManager.state, !appRouter.hasCheckedChildren {
+            if case .authenticated = authManager.state {
                 await appRouter.prefetchChildren()
+            }
+        }
+        // Deep link from push notification tap
+        .onReceive(NotificationCenter.default.publisher(for: .pushNotificationTapped)) { notification in
+            guard let userInfo = notification.userInfo,
+                  let type = userInfo["type"] as? String,
+                  type == "child_started_playing" else { return }
+            // Switch to parent mode to see the live monitor
+            withAnimation(.spring(duration: 0.4)) {
+                appRouter.activeRole = .parent
             }
         }
     }

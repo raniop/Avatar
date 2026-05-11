@@ -143,11 +143,12 @@ struct OpenAIService {
     // MARK: - Analyze photo for cartoon generation
 
     private func analyzeForCartoon(imageData: Data) async throws -> [String: String] {
-        let compressedData = compressImage(data: imageData, maxDimension: 384, quality: 0.6)
+        // Use higher resolution for better color accuracy (768px, quality 0.8)
+        let compressedData = compressImage(data: imageData, maxDimension: 768, quality: 0.8)
         let base64Image = compressedData.base64EncodedString()
 
-        // Try models in order — gpt-4o-mini is less likely to refuse
-        let models = ["gpt-4o-mini", "gpt-4o"]
+        // Try gpt-4o first for best visual accuracy, fallback to gpt-4o-mini
+        let models = ["gpt-4o", "gpt-4o-mini"]
 
         for model in models {
             do {
@@ -169,10 +170,14 @@ struct OpenAIService {
                 [
                     "role": "system",
                     "content": """
-                    You are a character design tool for a children's educational app. \
-                    Given a reference image, output a JSON object describing visual traits \
-                    for generating a cartoon illustration. Focus only on artistic attributes: \
-                    colors, shapes, and style. Always respond with valid JSON.
+                    You are an expert character design tool for a children's educational app. \
+                    Given a reference photo of a child, output a JSON object describing their \
+                    visual traits for generating a cartoon illustration. \
+                    CRITICAL: Be extremely precise about HAIR COLOR and EYE COLOR. \
+                    Blonde/golden hair must be identified as "blonde", NOT "light brown". \
+                    Blue eyes must be identified as "blue", NOT "hazel" or "brown". \
+                    Look carefully at the actual colors in the image — do not default to generic descriptions. \
+                    Focus on artistic attributes: colors, shapes, and style. Always respond with valid JSON.
                     """
                 ],
                 [
@@ -181,29 +186,39 @@ struct OpenAIService {
                         [
                             "type": "text",
                             "text": """
-                            Describe the visual traits in this reference image accurately \
-                            for creating a cartoon character. Be very precise about colors — \
-                            distinguish between blonde, sandy blonde, light brown, dark brown, etc. \
+                            Analyze this child's photo VERY carefully and describe their visual traits \
+                            for creating an accurate cartoon character. \
+                            \
+                            HAIR COLOR — Look at the actual hair pixels carefully: \
+                            - If hair appears yellow, golden, or light/warm-toned → use "blonde" or "golden blonde" \
+                            - Only use "light brown" if the hair is clearly brown-toned, not golden \
+                            - Distinguish: blonde, golden blonde, strawberry blonde, sandy blonde, light brown, brown, dark brown, black, red, auburn \
+                            \
+                            EYE COLOR — Look at the iris color carefully: \
+                            - If eyes appear blue or grey-blue → use "blue" or "light blue" \
+                            - Only use "hazel" if there is a clear mix of brown and green \
+                            - Distinguish: blue, light blue, green, hazel, brown, dark brown \
+                            \
                             Return JSON with these string fields: \
                             hairColor, hairStyle, eyeColor, skinTone, \
                             approximateAge, gender, facialFeatures. \
                             Example: {"hairColor":"blonde","hairStyle":"short textured", \
-                            "eyeColor":"bright blue","skinTone":"fair","approximateAge":"6", \
+                            "eyeColor":"blue","skinTone":"fair","approximateAge":"6", \
                             "gender":"boy","facialFeatures":"round face, small nose"} \
-                            Return ONLY JSON.
+                            Return ONLY valid JSON, no explanation.
                             """
                         ],
                         [
                             "type": "image_url",
                             "image_url": [
                                 "url": "data:image/jpeg;base64,\(base64Image)",
-                                "detail": "low"
+                                "detail": "auto"
                             ]
                         ]
                     ]
                 ]
             ],
-            "max_tokens": 250
+            "max_tokens": 350
         ]
 
         let data = try await postJSON(url: chatURL, body: requestBody)

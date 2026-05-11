@@ -129,6 +129,10 @@ final class APIClient: Sendable {
         return wrapper.mission
     }
 
+    func getAdventureProgress(childId: String) async throws -> AdventureProgressResponse {
+        try await get("/missions/progress/\(childId)")
+    }
+
     // MARK: - Conversations
 
     func createConversation(childId: String, missionId: String?, locale: AppLocale) async throws -> CreateConversationResponse {
@@ -146,6 +150,13 @@ final class APIClient: Sendable {
 
     func getConversations(childId: String, limit: Int = 20) async throws -> ConversationsWrapper {
         try await get("/conversations/child/\(childId)?limit=\(limit)")
+    }
+
+    /// Find an existing ACTIVE conversation for a specific mission.
+    /// Returns the most recent one if multiple exist.
+    func getActiveConversation(childId: String, missionId: String) async throws -> ConversationListItem? {
+        let wrapper: ConversationsWrapper = try await get("/conversations/child/\(childId)?limit=10")
+        return wrapper.conversations.first { $0.missionId == missionId && $0.status == "ACTIVE" }
     }
 
     func getConversationSummary(conversationId: String) async throws -> SummaryWrapper {
@@ -186,6 +197,39 @@ final class APIClient: Sendable {
         let _: InterventionResponse = try await post("/conversations/\(conversationId)/intervene", body: ["textContent": text])
     }
 
+    // MARK: - Device Tokens
+
+    func registerDeviceToken(token: String, platform: String, role: String) async throws {
+        struct Body: Encodable {
+            let token: String
+            let platform: String
+            let role: String
+        }
+        let _: DeviceTokenResponse = try await post("/devices/token", body: Body(token: token, platform: platform, role: role))
+    }
+
+    func unregisterDeviceToken(token: String) async throws {
+        struct Body: Encodable { let token: String }
+        let _: EmptyResponse = try await deleteWithBody("/devices/token", body: Body(token: token))
+    }
+
+    // MARK: - Parent Guidance
+
+    func getGuidance(childId: String) async throws -> [ParentGuidance] {
+        let wrapper: GuidanceWrapper = try await get("/guidance/child/\(childId)")
+        return wrapper.guidance
+    }
+
+    func createGuidance(childId: String, instruction: String) async throws -> ParentGuidance {
+        struct Body: Encodable { let childId: String; let instruction: String }
+        let wrapper: GuidanceItemWrapper = try await post("/guidance", body: Body(childId: childId, instruction: instruction))
+        return wrapper.guidance
+    }
+
+    func deleteGuidance(id: String) async throws {
+        try await delete("/guidance/\(id)")
+    }
+
     // MARK: - HTTP Helpers
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
@@ -221,6 +265,13 @@ final class APIClient: Sendable {
               (200...299).contains(httpResponse.statusCode) else {
             throw APIError.requestFailed
         }
+    }
+
+    private func deleteWithBody<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
+        var request = try buildRequest(path: path, method: "DELETE")
+        request.httpBody = try encoder.encode(body)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return try await execute(request)
     }
 
     private func buildRequest(path: String, method: String) throws -> URLRequest {
@@ -366,6 +417,7 @@ struct CreateConversationResponse: Decodable {
         let audioUrl: String?
         let audioData: String?  // base64-encoded MP3 audio
         let timestamp: Date
+        let adventure: AdventureState?
     }
 }
 
@@ -451,4 +503,24 @@ struct InterventionResponse: Decodable {
         let isParentIntervention: Bool
         let timestamp: Date
     }
+}
+
+struct DeviceTokenResponse: Decodable {
+    let deviceToken: DeviceTokenInfo
+
+    struct DeviceTokenInfo: Decodable {
+        let id: String
+        let token: String
+        let platform: String
+        let role: String
+        let isActive: Bool
+    }
+}
+
+struct GuidanceWrapper: Decodable {
+    let guidance: [ParentGuidance]
+}
+
+struct GuidanceItemWrapper: Decodable {
+    let guidance: ParentGuidance
 }

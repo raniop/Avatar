@@ -3,9 +3,16 @@ import Observation
 
 @Observable
 final class LiveMonitorViewModel {
+    enum InputMode: String, CaseIterable {
+        case intervention
+        case guidance
+    }
+
     var messages: [Message] = []
     var interventionText = ""
     var isConnected = false
+    var inputMode: InputMode = .guidance
+    var guidanceSentFlash = false
 
     private let conversation: Conversation
     private let parentUserId: String
@@ -39,7 +46,16 @@ final class LiveMonitorViewModel {
         isConnected = false
     }
 
-    func sendIntervention() {
+    func send() {
+        switch inputMode {
+        case .intervention:
+            sendIntervention()
+        case .guidance:
+            sendGuidance()
+        }
+    }
+
+    private func sendIntervention() {
         guard !interventionText.isEmpty else { return }
         let text = interventionText
         interventionText = ""
@@ -60,6 +76,18 @@ final class LiveMonitorViewModel {
             timestamp: Date()
         )
         messages.append(message)
+    }
+
+    private func sendGuidance() {
+        guard !interventionText.isEmpty else { return }
+        let text = interventionText
+        interventionText = ""
+
+        webSocket.sendGuidance(
+            parentUserId: parentUserId,
+            conversationId: conversation.id,
+            instruction: text
+        )
     }
 
     // MARK: - Setup
@@ -89,6 +117,15 @@ final class LiveMonitorViewModel {
         // Intervention confirmation
         webSocket.onInterventionSent = { [weak self] _ in
             _ = self // Intervention already added locally
+        }
+
+        // Guidance saved confirmation
+        webSocket.onGuidanceSaved = { [weak self] in
+            guard let self else { return }
+            self.guidanceSentFlash = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                self.guidanceSentFlash = false
+            }
         }
 
         // Parent ended conversation

@@ -24,9 +24,15 @@ struct SettingsView: View {
                     }
                 }
 
-                // Show "Switch Player" only in child mode when parent has multiple children
+                // Show child-specific options only in child mode
                 if appRouter.activeRole == .child {
                     Section {
+                        Button {
+                            appRouter.shouldRestartAvatarSetup = true
+                        } label: {
+                            Label(L.changeFriend, systemImage: "arrow.triangle.2.circlepath")
+                        }
+
                         Button {
                             appRouter.switchChild()
                         } label: {

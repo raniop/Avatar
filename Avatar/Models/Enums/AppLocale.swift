@@ -171,6 +171,15 @@ enum AppLocale: String, Codable, CaseIterable {
     func gameTimerLabel(_ seconds: Int) -> String { "\(seconds)s" }
     func gameScoreLabel(_ score: Int, _ threshold: Int) -> String { "\(score)/\(threshold)" }
 
+    // MARK: - Sport Games
+
+    var gameGoal: String { self == .hebrew ? "גול!" : "Goal!" }
+    var gameSwish: String { self == .hebrew ? "קליעה!" : "Swish!" }
+    var gameFindTheLetter: String { self == .hebrew ? "מצאו את האות" : "Find the letter" }
+    var gameSpellTheWord: String { self == .hebrew ? "אייתו את המילה" : "Spell the word" }
+    var gameCollectLetters: String { self == .hebrew ? "אספו אותיות" : "Collect letters" }
+    var gameSolve: String { self == .hebrew ? "פתרו" : "Solve" }
+
     // MARK: - Avatar / Child Creation
 
     var uploadPhotoToCreate: String { self == .hebrew ? "העלה תמונה\nליצירת אווטאר" : "Upload a photo\nto create avatar" }

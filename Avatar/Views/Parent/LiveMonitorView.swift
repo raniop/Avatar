@@ -38,21 +38,47 @@ struct LiveMonitorView: View {
 
                     Divider()
 
-                    // Intervention input
-                    HStack(spacing: AppTheme.Spacing.sm) {
-                        TextField(L.sendGuidance, text: Binding(
-                            get: { viewModel.interventionText },
-                            set: { viewModel.interventionText = $0 }
-                        ))
+                    // Mode picker + input
+                    VStack(spacing: AppTheme.Spacing.xs) {
+                        // Guidance sent flash
+                        if viewModel.guidanceSentFlash {
+                            Text(L.guidanceSent)
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                                .transition(.opacity)
+                        }
+
+                        Picker("", selection: Binding(
+                            get: { viewModel.inputMode },
+                            set: { viewModel.inputMode = $0 }
+                        )) {
+                            Text(L.guideAvatar).tag(LiveMonitorViewModel.InputMode.guidance)
+                            Text(L.messageToChild).tag(LiveMonitorViewModel.InputMode.intervention)
+                        }
+                        .pickerStyle(.segmented)
+
+                        HStack(spacing: AppTheme.Spacing.sm) {
+                            TextField(
+                                viewModel.inputMode == .guidance ? L.guidanceHint : L.sendGuidance,
+                                text: Binding(
+                                    get: { viewModel.interventionText },
+                                    set: { viewModel.interventionText = $0 }
+                                )
+                            )
                             .textFieldStyle(.roundedBorder)
 
-                        Button {
-                            viewModel.sendIntervention()
-                        } label: {
-                            Image(systemName: "paperplane.fill")
-                                .foregroundStyle(AppTheme.Colors.primary)
+                            Button {
+                                viewModel.send()
+                            } label: {
+                                Image(systemName: "paperplane.fill")
+                                    .foregroundStyle(
+                                        viewModel.inputMode == .guidance
+                                            ? AppTheme.Colors.accent
+                                            : AppTheme.Colors.primary
+                                    )
+                            }
+                            .disabled(viewModel.interventionText.isEmpty)
                         }
-                        .disabled(viewModel.interventionText.isEmpty)
                     }
                     .padding()
                 }

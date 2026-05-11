@@ -7,9 +7,17 @@ struct ChildTabView: View {
 
     private var L: AppLocale { appRouter.currentLocale }
 
+    /// Show friend-selection if no friend has been chosen yet (new or old flow)
     private var needsAvatarSetup: Bool {
         guard let child = appRouter.selectedChild else { return false }
-        return !UserDefaults.standard.bool(forKey: "avatar_setup_done_\(child.id)")
+        let hasFriend = UserDefaults.standard.object(forKey: "friend_preset_\(child.id)") != nil
+        let completedOldFlow = UserDefaults.standard.bool(forKey: "avatar_setup_done_\(child.id)")
+        // Check if friend was set up on another device (backend has the name)
+        let hasBackendFriend: Bool = {
+            guard let name = child.avatar?.name else { return false }
+            return ChildHomeViewModel.presetIdForName(name) != nil
+        }()
+        return !hasFriend && !completedOldFlow && !hasBackendFriend
     }
 
     var body: some View {
@@ -32,7 +40,7 @@ struct ChildTabView: View {
                     child: child,
                     locale: L,
                     onComplete: {
-                        UserDefaults.standard.set(true, forKey: "avatar_setup_done_\(child.id)")
+                        // Friend preset is already saved in AvatarSetupView.saveAndFinish()
                         withAnimation(.easeInOut(duration: 0.3)) {
                             showAvatarSetup = false
                         }
@@ -45,6 +53,14 @@ struct ChildTabView: View {
         .onAppear {
             if needsAvatarSetup {
                 showAvatarSetup = true
+            }
+        }
+        .onChange(of: appRouter.shouldRestartAvatarSetup) { _, restart in
+            if restart {
+                appRouter.shouldRestartAvatarSetup = false
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showAvatarSetup = true
+                }
             }
         }
     }

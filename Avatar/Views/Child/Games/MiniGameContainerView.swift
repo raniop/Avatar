@@ -1,13 +1,15 @@
 import SwiftUI
+import UIKit
 
-/// Wraps any mini-game with a consistent HUD (round, timer, score) and manages
-/// the countdown → game → score screen flow.
+/// Wraps the runner game with a consistent HUD (round, timer, distance) and
+/// manages the countdown → game → score screen flow.
 struct MiniGameContainerView: View {
     let gameType: MiniGameType
     let theme: String
     let round: Int
     let age: Int
     let locale: AppLocale
+    let avatarImage: UIImage?
     let onComplete: (GameResult) -> Void
 
     @State private var phase: GamePhase = .countdown
@@ -15,7 +17,6 @@ struct MiniGameContainerView: View {
     @State private var score = 0
     @State private var totalItems = 0
     @State private var timeRemaining: Int = 0
-    @State private var timerActive = false
 
     private var difficulty: GameDifficulty {
         GameThemeConfig.difficulty(for: age, round: round)
@@ -29,17 +30,25 @@ struct MiniGameContainerView: View {
 
     var body: some View {
         ZStack {
-            // Dark background for ALL phases
             Color.black.opacity(0.85)
                 .ignoresSafeArea()
 
             switch phase {
             case .countdown:
-                CountdownView(value: countdownValue, round: round, gameType: gameType, locale: locale)
+                CountdownView(value: countdownValue, round: round, locale: locale)
 
             case .playing:
-                VStack(spacing: 0) {
-                    // HUD
+                ZStack(alignment: .top) {
+                    TempleRunGameView(
+                        avatarImage: avatarImage,
+                        difficulty: difficulty,
+                        locale: locale,
+                        score: $score,
+                        totalItems: $totalItems,
+                        timeRemaining: $timeRemaining,
+                        onTimeUp: { endGame() }
+                    )
+
                     GameHUD(
                         round: round,
                         timeRemaining: timeRemaining,
@@ -50,9 +59,11 @@ struct MiniGameContainerView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
 
-                    // The actual game
-                    gameView
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    SwipeHint(locale: locale)
+                        .padding(.top, 80)
+                        .opacity(score < 5 ? 1 : 0)
+                        .animation(.easeOut(duration: 0.4), value: score < 5)
+                        .frame(maxWidth: .infinity, alignment: .center)
                 }
 
             case .scoreScreen:
@@ -78,53 +89,6 @@ struct MiniGameContainerView: View {
         .onAppear { startCountdown() }
     }
 
-    @ViewBuilder
-    private var gameView: some View {
-        switch gameType {
-        case .footballKick:
-            FootballKickGameView(
-                theme: theme,
-                difficulty: difficulty,
-                locale: locale,
-                age: age,
-                score: $score,
-                totalItems: $totalItems,
-                timeRemaining: $timeRemaining,
-                onTimeUp: { endGame() }
-            )
-        case .basketballShoot:
-            BasketballShootGameView(
-                theme: theme,
-                difficulty: difficulty,
-                locale: locale,
-                age: age,
-                score: $score,
-                totalItems: $totalItems,
-                timeRemaining: $timeRemaining,
-                onTimeUp: { endGame() }
-            )
-        case .carRace:
-            CarRaceGameView(
-                theme: theme,
-                difficulty: difficulty,
-                locale: locale,
-                age: age,
-                score: $score,
-                totalItems: $totalItems,
-                timeRemaining: $timeRemaining,
-                onTimeUp: { endGame() }
-            )
-        case .simonPattern:
-            SimonPatternGameView(
-                theme: theme,
-                difficulty: difficulty,
-                score: $score,
-                totalItems: $totalItems,
-                onGameOver: { endGame() }
-            )
-        }
-    }
-
     private func startCountdown() {
         countdownValue = 3
         timeRemaining = difficulty.timeLimit
@@ -144,7 +108,7 @@ struct MiniGameContainerView: View {
     }
 
     private func endGame() {
-        timerActive = false
+        guard phase == .playing else { return }
         withAnimation(.easeInOut(duration: 0.3)) {
             phase = .scoreScreen
         }
@@ -156,7 +120,6 @@ struct MiniGameContainerView: View {
 struct CountdownView: View {
     let value: Int
     let round: Int
-    let gameType: MiniGameType
     let locale: AppLocale
 
     @State private var scale: CGFloat = 0.3
@@ -164,39 +127,25 @@ struct CountdownView: View {
     @State private var emojiScale: CGFloat = 0.5
     @State private var glowOpacity: Double = 0
 
-    private var gameEmoji: String {
-        switch gameType {
-        case .footballKick: return "⚽"
-        case .basketballShoot: return "🏀"
-        case .carRace: return "🏎️"
-        case .simonPattern: return "🎵"
-        }
-    }
-
     var body: some View {
         VStack(spacing: 24) {
             Spacer()
 
-            // Game emoji
-            Text(gameEmoji)
+            Text("🏃")
                 .font(.system(size: 60))
                 .scaleEffect(emojiScale)
 
-            // Round label
             Text(locale.gameRoundLabel(round, 3))
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.7))
 
-            // Big number with glow
             ZStack {
-                // Glow
                 Text("\(value)")
                     .font(.system(size: 140, weight: .black, design: .rounded))
                     .foregroundStyle(Color(hex: "FDCB6E"))
                     .blur(radius: 20)
                     .opacity(glowOpacity)
 
-                // Number
                 Text("\(value)")
                     .font(.system(size: 140, weight: .black, design: .rounded))
                     .foregroundStyle(.white)
@@ -205,7 +154,6 @@ struct CountdownView: View {
             .scaleEffect(scale)
             .opacity(opacity)
 
-            // Get ready text
             Text("🎮")
                 .font(.system(size: 28))
                 .opacity(0.6)
@@ -245,18 +193,16 @@ struct GameHUD: View {
 
     var body: some View {
         HStack {
-            // Round
             Text(locale.gameRoundLabel(round, 3))
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(.white.opacity(0.2))
+                .background(.black.opacity(0.4))
                 .clipShape(Capsule())
 
             Spacer()
 
-            // Timer
             HStack(spacing: 4) {
                 Image(systemName: "timer")
                     .font(.system(size: 12))
@@ -266,12 +212,11 @@ struct GameHUD: View {
             .foregroundStyle(timeRemaining <= 5 ? Color(hex: "FF6B6B") : .white)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(.white.opacity(0.2))
+            .background(.black.opacity(0.4))
             .clipShape(Capsule())
 
             Spacer()
 
-            // Score
             HStack(spacing: 4) {
                 Text("⭐")
                     .font(.system(size: 12))
@@ -281,9 +226,37 @@ struct GameHUD: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(.white.opacity(0.2))
+            .background(.black.opacity(0.4))
             .clipShape(Capsule())
         }
+    }
+}
+
+// MARK: - Swipe hint
+
+struct SwipeHint: View {
+    let locale: AppLocale
+
+    var body: some View {
+        HStack(spacing: 14) {
+            hint(symbol: "arrow.left.and.right", text: locale == .hebrew ? "החלף נתיב" : "swipe to switch lane")
+            hint(symbol: "arrow.up", text: locale == .hebrew ? "קפוץ" : "swipe up to jump")
+            hint(symbol: "arrow.down", text: locale == .hebrew ? "החלק" : "swipe down to slide")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.black.opacity(0.45))
+        .clipShape(Capsule())
+    }
+
+    private func hint(symbol: String, text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .bold))
+            Text(text)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+        }
+        .foregroundStyle(.white)
     }
 }
 
@@ -318,10 +291,14 @@ struct GameScoreView: View {
                     Text(earnedStar ? "🎉" : "💪")
                         .font(.system(size: 48))
 
-                    Text("\(score) / \(total)")
+                    Text("\(score) / \(starThreshold)")
                         .font(.system(size: 56, weight: .black, design: .rounded))
                         .foregroundStyle(.white)
                         .shadow(color: .white.opacity(0.3), radius: 8)
+
+                    Text(locale == .hebrew ? "מטרים" : "meters")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.7))
                 }
                 .transition(.scale.combined(with: .opacity))
             }
@@ -348,5 +325,6 @@ struct GameScoreView: View {
                 starScale = 1.0
             }
         }
+        .onTapGesture { _ = total }
     }
 }

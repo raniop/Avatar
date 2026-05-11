@@ -11,7 +11,8 @@ struct AvatarSetupView: View {
     @State private var isSaving = false
     @State private var appearAnimation = false
 
-    private let storage = AvatarStorage.shared
+    // Friend preset is stored in UserDefaults (images are in the app bundle)
+    // The child's own AI-generated avatar stays untouched in AvatarStorage
 
     // Each preset has an index and a name per locale
     private struct PresetCharacter: Identifiable {
@@ -22,6 +23,12 @@ struct AvatarSetupView: View {
         func name(for locale: AppLocale) -> String {
             locale == .hebrew ? hebrewName : englishName
         }
+    }
+
+    /// Gender of the selected avatar character (not the child's gender)
+    private var selectedAvatarGender: String {
+        guard let preset = selectedPreset else { return "boy" }
+        return preset <= 4 ? "boy" : "girl"
     }
 
     /// Voice ID based on selected character: boy characters (1-4) get male voice, girl characters (5-8) get female voice
@@ -90,12 +97,19 @@ struct AvatarSetupView: View {
     private var characterSelectionStep: some View {
         ScrollView {
             VStack(spacing: 20) {
-                Text(locale.chooseYourFriend(gender: child.gender))
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .opacity(appearAnimation ? 1 : 0)
-                    .offset(y: appearAnimation ? 0 : 20)
-                    .padding(.top, 16)
+                VStack(spacing: 4) {
+                    Text(locale.heyChildName(child.name))
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+
+                    Text(locale.chooseYourFriend(gender: child.gender))
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
+                .multilineTextAlignment(.center)
+                .opacity(appearAnimation ? 1 : 0)
+                .offset(y: appearAnimation ? 0 : 20)
+                .padding(.top, 16)
 
                 // 2x4 grid of avatars with names
                 LazyVGrid(columns: [
@@ -177,10 +191,28 @@ struct AvatarSetupView: View {
 
     private var meetFriendStep: some View {
         VStack(spacing: 24) {
+            // Back button
+            HStack {
+                Button {
+                    meetAppeared = false
+                    glowPulse = false
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        step = 1
+                    }
+                } label: {
+                    Image(systemName: "chevron.backward.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+
             Spacer()
 
-            // Title
-            Text(locale.meetYourFriend(gender: child.gender))
+            // Title — uses avatar gender, not child gender
+            Text(locale.meetYourFriend(gender: selectedAvatarGender))
                 .font(.system(size: 26, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .opacity(meetAppeared ? 1 : 0)
@@ -206,7 +238,7 @@ struct AvatarSetupView: View {
                     .fill(.white)
                     .frame(width: 20, height: 10)
 
-                // Bubble content
+                // Bubble content — uses avatar gender for gendered speech
                 Text(locale.avatarIntro(
                     avatarName: avatarName,
                     childName: child.name,
@@ -228,8 +260,8 @@ struct AvatarSetupView: View {
             .opacity(meetAppeared ? 1 : 0)
             .offset(y: meetAppeared ? 0 : 20)
 
-            // Subtitle
-            Text(locale.newFriendReady(gender: child.gender))
+            // Subtitle — uses avatar gender
+            Text(locale.newFriendReady(gender: selectedAvatarGender))
                 .font(.system(size: 15, weight: .medium, design: .rounded))
                 .foregroundStyle(.white.opacity(0.8))
                 .opacity(meetAppeared ? 1 : 0)
@@ -275,22 +307,18 @@ struct AvatarSetupView: View {
     // MARK: - Save
 
     private func saveAndFinish() async {
-        guard let preset = selectedPreset,
-              let image = UIImage(named: "avatar_preset_\(preset)"),
-              !avatarName.isEmpty else { return }
+        guard let preset = selectedPreset, !avatarName.isEmpty else { return }
 
         isSaving = true
-        do {
-            // Save avatar image + name locally and to Firebase
-            try await storage.saveAvatar(name: avatarName, image: image, childId: child.id)
-            // Also save avatar name + voice to backend so it appears in conversation greetings
-            try? await APIClient.shared.setAvatarName(childId: child.id, name: avatarName, voiceId: selectedVoiceId)
-            await MainActor.run {
-                onComplete()
-            }
-        } catch {
-            print("AvatarSetup: Failed to save: \(error)")
-            isSaving = false
+        // Save friend preset ID + name to UserDefaults (NOT AvatarStorage — that holds the child's own avatar)
+        UserDefaults.standard.set(preset, forKey: "friend_preset_\(child.id)")
+        UserDefaults.standard.set(avatarName, forKey: "friend_name_\(child.id)")
+        // Save friend name + voice to backend so it appears in conversation greetings
+        try? await APIClient.shared.setAvatarName(childId: child.id, name: avatarName, voiceId: selectedVoiceId)
+        await MainActor.run {
+            // Notify ChildHomeView to reload friend data
+            NotificationCenter.default.post(name: .friendSetupCompleted, object: nil)
+            onComplete()
         }
     }
 }

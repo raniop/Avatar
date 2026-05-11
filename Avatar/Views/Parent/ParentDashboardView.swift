@@ -140,7 +140,7 @@ struct AddChildPromptView: View {
         }
         .padding(AppTheme.Spacing.xl)
         .frame(maxWidth: .infinity)
-        .background(.white)
+        .background(AppTheme.Colors.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.lg))
     }
 }
@@ -254,6 +254,15 @@ struct ChildDashboardCard: View {
                 }
 
                 NavigationLink {
+                    ParentGuidanceView(child: child)
+                } label: {
+                    DashboardActionLabel(
+                        icon: "hand.raised",
+                        label: locale.guidanceTab
+                    )
+                }
+
+                NavigationLink {
                     ConversationHistoryView(child: child)
                 } label: {
                     DashboardActionLabel(
@@ -273,7 +282,7 @@ struct ChildDashboardCard: View {
             }
             .padding(.vertical, AppTheme.Spacing.sm)
         }
-        .background(.white)
+        .background(AppTheme.Colors.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .shadow(color: .black.opacity(0.06), radius: 10, y: 4)
         .task {

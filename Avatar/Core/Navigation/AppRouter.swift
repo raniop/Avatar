@@ -40,6 +40,9 @@ final class AppRouter {
     var selectedChild: Child?
     var activeConversation: Conversation?
 
+    /// Set to `true` from Settings to re-show the avatar-setup flow.
+    var shouldRestartAvatarSetup = false
+
     func navigateToMission(_ mission: Mission) {
         childNavigationPath.append(ChildRoute.missionStart(mission))
     }
@@ -70,8 +73,16 @@ final class AppRouter {
         guard !hasCheckedChildren || force else { return }
         do {
             cachedChildren = try await APIClient.shared.getChildren()
+            print("✅ Prefetched \(cachedChildren?.count ?? 0) children")
+
+            // Single child → auto-select when entering child role (skip ChildPickerView)
+            // But still show RoleSelectionView so parent can choose parent mode
         } catch {
-            cachedChildren = []
+            print("❌ Failed to prefetch children: \(error)")
+            // Only reset to empty if we don't already have a successful result
+            if cachedChildren == nil {
+                cachedChildren = []
+            }
         }
         hasCheckedChildren = true
     }

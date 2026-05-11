@@ -130,6 +130,7 @@ struct AdventureView: View {
                     round: config.round,
                     age: viewModel.child.age,
                     locale: L,
+                    avatarImage: viewModel.avatarImage,
                     onComplete: { result in
                         viewModel.reportGameResult(result)
                     }

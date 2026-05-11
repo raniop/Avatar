@@ -17,9 +17,30 @@ struct RoleSelectionView: View {
         return !cached.isEmpty
     }
 
+    /// Still waiting for the initial children fetch
+    private var isLoadingChildren: Bool {
+        appRouter.cachedChildren == nil
+    }
+
     var body: some View {
         Group {
-            if !hasChildren {
+            if isLoadingChildren {
+                // Still fetching children — show brief spinner on gradient
+                ZStack {
+                    LinearGradient(
+                        colors: [Color(hex: "A29BFE"), Color(hex: "6C5CE7")],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                    .ignoresSafeArea()
+                    ProgressView()
+                        .tint(.white)
+                        .scaleEffect(1.5)
+                }
+                .task {
+                    // Retry fetch if children not yet loaded
+                    await appRouter.prefetchChildren()
+                }
+            } else if !hasChildren {
                 // No children yet — welcome splash
                 welcomeNewUserView
             } else {
@@ -190,6 +211,11 @@ struct RoleSelectionView: View {
                     showParentChallenge = false
                     withAnimation(.spring(duration: 0.4)) {
                         appRouter.activeRole = .parent
+                    }
+                    // Request notification permission & register device as parent
+                    Task {
+                        let _ = await PushNotificationManager.shared.requestPermission()
+                        await PushNotificationManager.shared.registerToken(role: .parent)
                     }
                 } onCancel: {
                     showParentChallenge = false

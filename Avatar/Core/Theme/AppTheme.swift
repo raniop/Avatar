@@ -7,11 +7,11 @@ enum AppTheme {
         static let secondary = Color(hex: "00B894")
         static let accent = Color(hex: "FDCB6E")
         static let danger = Color(hex: "E17055")
-        static let backgroundLight = Color(hex: "F8F9FA")
+        static let backgroundLight = Color(.systemGroupedBackground)
         static let backgroundDark = Color(hex: "2D3436")
-        static let textPrimary = Color(hex: "2D3436")
-        static let textSecondary = Color(hex: "636E72")
-        static let cardBackground = Color.white
+        static let textPrimary = Color(.label)
+        static let textSecondary = Color(.secondaryLabel)
+        static let cardBackground = Color(.secondarySystemGroupedBackground)
 
         static var backgroundGradient: LinearGradient {
             LinearGradient(

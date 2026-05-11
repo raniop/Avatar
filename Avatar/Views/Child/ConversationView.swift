@@ -682,13 +682,16 @@ struct KidLoadingOverlay: View {
     let avatarImage: UIImage?
     let theme: String
 
-    @State private var floatOffset: CGFloat = 0
-    @State private var avatarScale: CGFloat = 0.3
+    @State private var avatarScale: CGFloat = 0.0
+    @State private var avatarBounce: CGFloat = 0
+    @State private var portalRotation: Double = 0
+    @State private var portalScale: CGFloat = 0.3
     @State private var showContent = false
-    @State private var showSparkles = false
-    @State private var progress: CGFloat = 0
+    @State private var emojiScale: CGFloat = 0.0
     @State private var textIndex = 0
-    @State private var pulseRing = false
+    @State private var progress: CGFloat = 0
+    @State private var showBubbles = false
+    @State private var starBounce = false
 
     private var loadingTexts: [String] {
         [locale.gettingReady, locale.preparingAdventure, locale.almostThere]
@@ -696,132 +699,162 @@ struct KidLoadingOverlay: View {
 
     private var themeColors: [Color] {
         switch theme {
-        case "superhero_training": [Color(hex: "E74C3C"), Color(hex: "3498DB")]
-        case "space_adventure": [Color(hex: "2C3E50"), Color(hex: "3498DB")]
-        case "cooking_adventure": [Color(hex: "F39C12"), Color(hex: "E74C3C")]
-        case "underwater_explorer": [Color(hex: "006994"), Color(hex: "00CED1")]
-        case "magical_forest": [Color(hex: "228B22"), Color(hex: "90EE90")]
-        case "dinosaur_world": [Color(hex: "8B4513"), Color(hex: "DAA520")]
-        case "pirate_treasure", "pirate_treasure_hunt": [Color(hex: "795548"), Color(hex: "3F51B5")]
-        case "fairy_tale", "fairy_tale_kingdom": [Color(hex: "E91E63"), Color(hex: "9C27B0")]
-        case "animal_rescue": [Color(hex: "4CAF50"), Color(hex: "8BC34A")]
-        case "sports_champion": [Color(hex: "27AE60"), Color(hex: "2980B9")]
-        default: [Color(hex: "74B9FF"), Color(hex: "A29BFE")]
+        case "superhero_training": [Color(hex: "FF6B6B"), Color(hex: "4ECDC4"), Color(hex: "2C3E50")]
+        case "space_adventure": [Color(hex: "0F0C29"), Color(hex: "302B63"), Color(hex: "24243E")]
+        case "cooking_adventure": [Color(hex: "F2994A"), Color(hex: "F2C94C"), Color(hex: "EB5757")]
+        case "underwater_explorer": [Color(hex: "005C97"), Color(hex: "00D2FF"), Color(hex: "0052D4")]
+        case "magical_forest": [Color(hex: "134E5E"), Color(hex: "71B280"), Color(hex: "2E8B57")]
+        case "dinosaur_world": [Color(hex: "8B6914"), Color(hex: "DAA520"), Color(hex: "CD853F")]
+        case "pirate_treasure", "pirate_treasure_hunt": [Color(hex: "2C3E50"), Color(hex: "4CA1AF"), Color(hex: "3F51B5")]
+        case "fairy_tale", "fairy_tale_kingdom": [Color(hex: "C471ED"), Color(hex: "F64F59"), Color(hex: "8E44AD")]
+        case "animal_rescue": [Color(hex: "11998E"), Color(hex: "38EF7D"), Color(hex: "56AB2F")]
+        case "sports_champion": [Color(hex: "1D976C"), Color(hex: "93F9B9"), Color(hex: "2193B0")]
+        default: [Color(hex: "A770EF"), Color(hex: "CF8BF3"), Color(hex: "FDB99B")]
+        }
+    }
+
+    /// Bright accent color derived from the theme
+    private var accentColor: Color {
+        switch theme {
+        case "superhero_training": Color(hex: "FFE66D")
+        case "space_adventure": Color(hex: "A8EDEA")
+        case "cooking_adventure": Color(hex: "FFFFFF")
+        case "underwater_explorer": Color(hex: "7FFFD4")
+        case "magical_forest": Color(hex: "ADFF2F")
+        case "dinosaur_world": Color(hex: "FFD700")
+        case "pirate_treasure", "pirate_treasure_hunt": Color(hex: "FFD700")
+        case "fairy_tale", "fairy_tale_kingdom": Color(hex: "FFB6C1")
+        case "animal_rescue": Color(hex: "FFFACD")
+        default: Color(hex: "FFFFFF")
         }
     }
 
     var body: some View {
-        ZStack {
-            // Theme gradient background
-            LinearGradient(
-                colors: themeColors,
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+        let screenW = UIScreen.main.bounds.width
+        let screenH = UIScreen.main.bounds.height
 
-            // Floating sparkles
-            ForEach(0..<8, id: \.self) { i in
-                FloatingSparkle(index: i, isActive: showSparkles)
+        ZStack {
+            // Rich multi-stop gradient background
+            MeshGradientBackground(colors: themeColors)
+                .ignoresSafeArea()
+
+            // Floating colorful bubbles
+            ForEach(0..<12, id: \.self) { i in
+                FloatingBubble(index: i, isActive: showBubbles, accentColor: accentColor, screenW: screenW, screenH: screenH)
             }
 
             VStack(spacing: 0) {
                 Spacer()
 
-                // Avatar with glowing ring
+                // ── Magical Portal + Avatar ──
                 ZStack {
-                    // Pulsing glow ring
+                    // Outer rotating portal ring
                     Circle()
-                        .stroke(
-                            .white.opacity(0.3),
-                            lineWidth: 4
+                        .strokeBorder(
+                            AngularGradient(
+                                colors: [accentColor, .white.opacity(0.5), accentColor.opacity(0.3), .white, accentColor],
+                                center: .center
+                            ),
+                            lineWidth: 5
                         )
-                        .frame(width: 160, height: 160)
-                        .scaleEffect(pulseRing ? 1.15 : 1.0)
-                        .opacity(pulseRing ? 0.0 : 0.6)
+                        .frame(width: 190, height: 190)
+                        .rotationEffect(.degrees(portalRotation))
+                        .scaleEffect(portalScale)
 
+                    // Inner soft glow
                     Circle()
-                        .stroke(
-                            .white.opacity(0.2),
-                            lineWidth: 3
+                        .fill(
+                            RadialGradient(
+                                colors: [accentColor.opacity(0.15), .clear],
+                                center: .center,
+                                startRadius: 50,
+                                endRadius: 110
+                            )
                         )
-                        .frame(width: 150, height: 150)
+                        .frame(width: 200, height: 200)
+                        .scaleEffect(portalScale)
 
+                    // Avatar image
                     if let img = avatarImage {
                         Image(uiImage: img)
                             .resizable()
                             .scaledToFill()
-                            .frame(width: 140, height: 140)
+                            .frame(width: 160, height: 160)
                             .clipShape(Circle())
                             .overlay(
                                 Circle()
-                                    .stroke(.white.opacity(0.8), lineWidth: 3)
+                                    .stroke(.white, lineWidth: 4)
                             )
-                            .shadow(color: .white.opacity(0.4), radius: 20, y: 0)
+                            .shadow(color: accentColor.opacity(0.6), radius: 25)
+                            .scaleEffect(avatarScale)
+                            .offset(y: avatarBounce)
                     }
                 }
-                .scaleEffect(avatarScale)
-                .offset(y: floatOffset)
 
-                Spacer().frame(height: 28)
+                Spacer().frame(height: 36)
 
-                // Mission emoji
+                // ── Mission Emoji (bounces in) ──
                 Text(emoji)
-                    .font(.system(size: 56))
-                    .opacity(showContent ? 1 : 0)
-                    .scaleEffect(showContent ? 1 : 0.5)
+                    .font(.system(size: 64))
+                    .scaleEffect(emojiScale)
+                    .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
 
-                Spacer().frame(height: 16)
+                Spacer().frame(height: 14)
 
-                // Mission title
+                // ── Mission Title ──
                 Text(missionTitle)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
                     .multilineTextAlignment(.center)
                     .opacity(showContent ? 1 : 0)
-                    .offset(y: showContent ? 0 : 10)
+                    .offset(y: showContent ? 0 : 20)
                     .padding(.horizontal, 32)
 
-                Spacer().frame(height: 32)
+                Spacer().frame(height: 40)
 
-                // Progress bar
-                VStack(spacing: 12) {
+                // ── Progress bar with star ──
+                VStack(spacing: 14) {
                     // Animated status text
                     Text(loadingTexts[textIndex])
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.9))
+                        .font(.system(size: 19, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.95))
+                        .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
                         .contentTransition(.numericText())
-                        .animation(.easeInOut(duration: 0.3), value: textIndex)
+                        .animation(.easeInOut(duration: 0.4), value: textIndex)
 
-                    // Progress track
+                    // Progress track with moving star
+                    let barWidth = screenW - 100
                     ZStack(alignment: .leading) {
+                        // Background track
                         Capsule()
                             .fill(.white.opacity(0.2))
-                            .frame(height: 8)
+                            .frame(width: barWidth, height: 14)
 
+                        // Filled portion with gradient
                         Capsule()
                             .fill(
                                 LinearGradient(
-                                    colors: [.white, .white.opacity(0.8)],
+                                    colors: [accentColor, .white],
                                     startPoint: .leading,
                                     endPoint: .trailing
                                 )
                             )
-                            .frame(width: max(8, progress * (UIScreen.main.bounds.width - 120)), height: 8)
+                            .frame(width: max(14, progress * barWidth), height: 14)
+                            .shadow(color: accentColor.opacity(0.5), radius: 6)
 
-                        // Star marker at the leading edge of progress
-                        HStack(spacing: 0) {
-                            Spacer()
-                                .frame(width: max(0, progress * (UIScreen.main.bounds.width - 120) - 8))
-                            Text("⭐")
-                                .font(.system(size: 16))
-                                .offset(y: -1)
-                        }
+                        // Star at the tip of progress
+                        Text("⭐")
+                            .font(.system(size: 24))
+                            .offset(
+                                x: max(0, progress * barWidth - 12),
+                                y: starBounce ? -6 : 0
+                            )
                     }
-                    .frame(maxWidth: UIScreen.main.bounds.width - 120)
+                    .frame(width: barWidth)
                 }
                 .opacity(showContent ? 1 : 0)
-                .padding(.horizontal, 40)
+                .padding(.horizontal, 32)
 
                 Spacer()
                 Spacer()
@@ -831,38 +864,53 @@ struct KidLoadingOverlay: View {
     }
 
     private func startAnimations() {
-        // Avatar pop-in with spring
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+        // Portal appears with spin
+        withAnimation(.spring(response: 0.8, dampingFraction: 0.6)) {
+            portalScale = 1.0
+        }
+
+        // Portal continuous rotation
+        withAnimation(.linear(duration: 8.0).repeatForever(autoreverses: false)) {
+            portalRotation = 360
+        }
+
+        // Avatar pop-in with bounce
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.55).delay(0.2)) {
             avatarScale = 1.0
         }
 
+        // Avatar gentle float
+        withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true).delay(0.6)) {
+            avatarBounce = -12
+        }
+
+        // Emoji bounce in
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.5).delay(0.4)) {
+            emojiScale = 1.0
+        }
+
         // Content fade in
-        withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
+        withAnimation(.easeOut(duration: 0.6).delay(0.5)) {
             showContent = true
         }
 
-        // Sparkles
-        withAnimation(.easeIn(duration: 0.3).delay(0.4)) {
-            showSparkles = true
+        // Bubbles start
+        withAnimation(.easeIn(duration: 0.3).delay(0.3)) {
+            showBubbles = true
         }
 
-        // Gentle avatar float
-        withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
-            floatOffset = -10
+        // Progress bar fills over ~8s (typical load time)
+        withAnimation(.easeInOut(duration: 8.0).delay(0.5)) {
+            progress = 0.92
         }
 
-        // Pulsing ring
-        withAnimation(.easeOut(duration: 1.5).repeatForever(autoreverses: false)) {
-            pulseRing = true
-        }
-
-        // Progress bar animation (fills over ~6s to cover typical load time)
-        withAnimation(.easeInOut(duration: 6.0)) {
-            progress = 0.9
+        // Star bounces along the progress bar
+        withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true).delay(0.6)) {
+            starBounce = true
         }
 
         // Cycle through loading texts
-        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { timer in
+        Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { timer in
             withAnimation {
                 textIndex = min(textIndex + 1, loadingTexts.count - 1)
             }
@@ -873,40 +921,87 @@ struct KidLoadingOverlay: View {
     }
 }
 
-/// Floating sparkle particles scattered across the screen
-private struct FloatingSparkle: View {
+/// Mesh-like gradient background with 3 colors for depth
+private struct MeshGradientBackground: View {
+    let colors: [Color]
+
+    @State private var animate = false
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: colors,
+                startPoint: animate ? .topLeading : .topTrailing,
+                endPoint: animate ? .bottomTrailing : .bottomLeading
+            )
+
+            // Soft radial overlay for depth
+            RadialGradient(
+                colors: [colors.first?.opacity(0.3) ?? .clear, .clear],
+                center: animate ? .topLeading : .bottomTrailing,
+                startRadius: 100,
+                endRadius: 500
+            )
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 6.0).repeatForever(autoreverses: true)) {
+                animate = true
+            }
+        }
+    }
+}
+
+/// Colorful floating bubbles scattered across the screen
+private struct FloatingBubble: View {
     let index: Int
     let isActive: Bool
+    let accentColor: Color
+    let screenW: CGFloat
+    let screenH: CGFloat
 
     @State private var opacity: Double = 0
     @State private var yOffset: CGFloat = 0
-    @State private var scale: CGFloat = 0.4
-    @State private var rotation: Double = 0
+    @State private var scale: CGFloat = 0.3
 
-    private var sparkle: String {
-        ["✨", "⭐", "💫", "🌟", "✨", "⭐", "🌟", "💫"][index % 8]
+    private var bubbleSize: CGFloat {
+        [14, 22, 10, 18, 26, 12, 20, 16, 24, 8, 15, 20][index % 12]
     }
 
-    private var size: CGFloat {
-        [18, 14, 22, 16, 20, 12, 24, 15][index % 8]
+    private var bubbleColor: Color {
+        let colors: [Color] = [
+            .white.opacity(0.4),
+            accentColor.opacity(0.5),
+            .white.opacity(0.25),
+            accentColor.opacity(0.35),
+            .white.opacity(0.5),
+            accentColor.opacity(0.4),
+            .white.opacity(0.3),
+            accentColor.opacity(0.45),
+            .white.opacity(0.35),
+            accentColor.opacity(0.3),
+            .white.opacity(0.45),
+            accentColor.opacity(0.5),
+        ]
+        return colors[index % 12]
     }
 
     private var xPos: CGFloat {
-        let positions: [CGFloat] = [0.12, 0.88, 0.22, 0.78, 0.45, 0.65, 0.35, 0.55]
-        return UIScreen.main.bounds.width * positions[index % 8]
+        let positions: [CGFloat] = [0.08, 0.92, 0.18, 0.82, 0.35, 0.65, 0.5, 0.25, 0.75, 0.42, 0.58, 0.15]
+        return screenW * positions[index % 12]
     }
 
     private var yPos: CGFloat {
-        let positions: [CGFloat] = [0.12, 0.18, 0.65, 0.72, 0.35, 0.50, 0.82, 0.28]
-        return UIScreen.main.bounds.height * positions[index % 8]
+        let positions: [CGFloat] = [0.1, 0.15, 0.7, 0.75, 0.3, 0.45, 0.85, 0.22, 0.6, 0.38, 0.52, 0.9]
+        return screenH * positions[index % 12]
     }
 
     var body: some View {
-        Text(sparkle)
-            .font(.system(size: size))
+        Circle()
+            .fill(bubbleColor)
+            .frame(width: bubbleSize, height: bubbleSize)
+            .blur(radius: bubbleSize > 18 ? 2 : 1)
             .opacity(opacity)
             .scaleEffect(scale)
-            .rotationEffect(.degrees(rotation))
             .offset(y: yOffset)
             .position(x: xPos, y: yPos)
             .onAppear {
@@ -919,12 +1014,14 @@ private struct FloatingSparkle: View {
     }
 
     private func animate() {
-        let delay = Double(index) * 0.15
-        withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true).delay(delay)) {
-            opacity = 0.8
-            yOffset = -25
-            scale = 1.0
-            rotation = Double([-15, 15, -10, 20, -20, 10, -15, 25][index % 8])
+        let delay = Double(index) * 0.12
+        let duration = Double.random(in: 2.5...4.0)
+        let drift = CGFloat.random(in: (-30)...(-15))
+
+        withAnimation(.easeInOut(duration: duration).repeatForever(autoreverses: true).delay(delay)) {
+            opacity = Double.random(in: 0.6...1.0)
+            yOffset = drift
+            scale = CGFloat.random(in: 0.8...1.2)
         }
     }
 }

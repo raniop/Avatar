@@ -41,6 +41,7 @@ final class WebSocketClient {
     var onInterventionSent: (([String: Any]) -> Void)?            // (intervention confirmation)
     var onParentConversationEnded: (([String: Any]) -> Void)?     // (conversation ended)
     var onActiveSessions: (([[String: Any]]) -> Void)?            // (active sessions list)
+    var onGuidanceSaved: (() -> Void)?                            // (guidance saved confirmation)
     var onParentError: ((String) -> Void)?
 
     // MARK: - Private
@@ -154,6 +155,14 @@ final class WebSocketClient {
     func stopMonitoring(conversationId: String) {
         emitEvent("parent:stop_monitor", data: [
             "conversationId": conversationId
+        ])
+    }
+
+    func sendGuidance(parentUserId: String, conversationId: String, instruction: String) {
+        emitEvent("parent:guidance", data: [
+            "parentUserId": parentUserId,
+            "conversationId": conversationId,
+            "instruction": instruction
         ])
     }
 
@@ -409,6 +418,9 @@ final class WebSocketClient {
         case "parent:error":
             let message = data["message"] as? String ?? "Unknown error"
             onParentError?(message)
+
+        case "parent:guidance_saved":
+            onGuidanceSaved?()
 
         case "parent:monitor_stopped":
             break

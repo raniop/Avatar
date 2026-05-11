@@ -117,22 +117,30 @@ struct ChildPickerView: View {
     }
 
     private func loadChildren() async {
-        do {
-            children = try await apiClient.getChildren()
-
-            // If only 1 child, auto-select and skip this screen
-            if children.count == 1, let only = children.first {
-                selectChild(only)
+        // Use cached children from AppRouter if available (already fetched at login)
+        let cached = appRouter.cachedChildren
+        if let cached, !cached.isEmpty {
+            children = cached
+        } else {
+            // Fallback: fetch from API
+            do {
+                children = try await apiClient.getChildren()
+            } catch {
+                print("ChildPickerView: Failed to load children: \(error)")
+                isLoading = false
                 return
             }
+        }
 
-            isLoading = false
-            withAnimation {
-                animateCards = true
-            }
-        } catch {
-            print("ChildPickerView: Failed to load children: \(error)")
-            isLoading = false
+        // If only 1 child, auto-select and skip this screen immediately
+        if children.count == 1, let only = children.first {
+            selectChild(only)
+            return
+        }
+
+        isLoading = false
+        withAnimation {
+            animateCards = true
         }
     }
 

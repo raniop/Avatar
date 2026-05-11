@@ -2,14 +2,14 @@ import SwiftUI
 
 struct AvatarConfig: Codable, Identifiable, Hashable {
     let id: String
-    let childId: String
+    var childId: String?
     var name: String
     var skinTone: String
     var hairStyle: String
     var hairColor: String
     var eyeColor: String
     var outfit: String
-    var accessories: [String]
+    var accessories: [String]?
     var voiceId: String?
     var personalityTraits: [String]?
 
@@ -33,7 +33,7 @@ struct AvatarConfig: Codable, Identifiable, Hashable {
     ) -> AvatarConfig {
         AvatarConfig(
             id: "preview",
-            childId: "preview",
+            childId: nil,
             name: "Preview",
             skinTone: skinTone,
             hairStyle: hairStyle,

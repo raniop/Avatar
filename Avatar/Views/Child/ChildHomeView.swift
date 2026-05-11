@@ -156,11 +156,11 @@ struct ChildHomeView: View {
             .fullScreenCover(isPresented: $viewModel.showConversation) {
                 if let child = viewModel.child,
                    let mission = viewModel.selectedMission {
-                    AdventureView(
-                        viewModel: AdventureViewModel(
-                            child: child,
-                            mission: mission
-                        )
+                    DirectRunnerLauncher(
+                        child: child,
+                        mission: mission,
+                        locale: appRouter.currentLocale,
+                        onDone: { viewModel.showConversation = false }
                     )
                 }
             }
@@ -169,6 +169,34 @@ struct ChildHomeView: View {
                     // Reload progress after returning from adventure
                     Task { await viewModel.refreshProgress() }
                 }
+            }
+        }
+    }
+}
+
+// MARK: - Direct game launcher (skips story / API / audio)
+
+private struct DirectRunnerLauncher: View {
+    let child: Child
+    let mission: Mission
+    let locale: AppLocale
+    let onDone: () -> Void
+
+    @State private var avatarImage: UIImage?
+
+    var body: some View {
+        MiniGameContainerView(
+            gameType: .templeRun,
+            theme: mission.theme,
+            round: 1,
+            age: child.age,
+            locale: locale,
+            avatarImage: avatarImage,
+            onComplete: { _ in onDone() }
+        )
+        .task {
+            if let saved = await AvatarStorage.shared.loadAvatar(childId: child.id) {
+                avatarImage = saved.image
             }
         }
     }
